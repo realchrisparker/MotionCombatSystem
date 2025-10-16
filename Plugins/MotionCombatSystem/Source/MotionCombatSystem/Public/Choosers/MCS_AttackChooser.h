@@ -36,7 +36,7 @@ class AActor;
  * to implement custom heuristics (distance, tags, target-facing, priority, etc).
  */
 UCLASS(Blueprintable, BlueprintType, EditInlineNew, CollapseCategories, meta=(DisplayName="Motion Combat System Attack Chooser"))
-class MOTIONCOMBATSYSTEM_API UMCS_AttackChooser : public UObject
+class MOTIONCOMBATSYSTEM_API UMCS_AttackChooser : public UPrimaryDataAsset
 {
     GENERATED_BODY()
 

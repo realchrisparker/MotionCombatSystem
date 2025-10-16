@@ -11,13 +11,18 @@
 	"MarketplaceURL": "",
 	"SupportURL": "",
 	"CanContainContent": true,
-	"IsBetaVersion": true,
+	"IsBetaVersion": false,
 	"IsExperimentalVersion": false,
 	"Installed": false,
 	"Modules": [
 		{
 			"Name": "MotionCombatSystem",
 			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "MotionCombatSystemEditor",
+			"Type": "Editor",
 			"LoadingPhase": "Default"
 		}
 	]
