@@ -13,8 +13,8 @@
  * =============================================================================
  * MCS_AttackChooser.h
  * A Blueprint-friendly UObject that selects the best FMCS_AttackEntry from a list
- * based on scoring logic. Designed to be overridable in Blueprints for designer
- * heuristics while providing a sensible C++ default implementation.
+ * based on modular scoring logic. Each part of the score calculation can now
+ * be reused individually by designers inside Blueprint.
  */
 
 #pragma once
@@ -24,6 +24,8 @@
 #include "UObject/NoExportTypes.h"
 #include "Engine/DataTable.h"
 #include <Structs/MCS_AttackEntry.h>
+#include <Enums/EMCS_AttackDirections.h>
+#include "GameplayTagContainer.h"
 #include "MCS_AttackChooser.generated.h"
 
 class AActor;
@@ -31,96 +33,89 @@ class AActor;
 /**
  * UMCS_AttackChooser
  *
- * A reusable chooser object that selects a suitable attack (FMCS_AttackEntry) from
- * an array of candidate entries. Designers can override ScoreAttack in Blueprints
- * to implement custom heuristics (distance, tags, target-facing, priority, etc).
+ * Selects an appropriate FMCS_AttackEntry based on scoring heuristics.
+ * The scoring logic is now split into modular, BlueprintPure helper functions
+ * (ComputeTagScore, ComputeDistanceScore, ComputeDirectionalScore, AggregateScore)
+ * to improve designer usability.
  */
-UCLASS(Blueprintable, BlueprintType, EditInlineNew, CollapseCategories, meta=(DisplayName="Motion Combat System Attack Chooser"))
-class MOTIONCOMBATSYSTEM_API UMCS_AttackChooser : public UPrimaryDataAsset
+UCLASS(Blueprintable, BlueprintType, EditInlineNew, CollapseCategories, ClassGroup = (MotionCombatSystem), meta = (DisplayName = "Motion Combat System Attack Chooser"))
+class MOTIONCOMBATSYSTEM_API UMCS_AttackChooser : public UObject
 {
     GENERATED_BODY()
 
 public:
-    // Constructor
     UMCS_AttackChooser();
 
-    /*
-     * Properties
-    */
+    /* ==========================================================
+     * Configurable Data
+     * ========================================================== */
 
-    /** Candidate attack entries to choose from. Fill in the Core Component or in a Blueprint data asset. */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|AttackChooser", meta=(DisplayName="Attack Entries"))
+     /** Candidate attack entries (usually loaded from a DataTable). */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|AttackChooser")
     TArray<FMCS_AttackEntry> AttackEntries;
 
-    /** Maximum distance to consider targets (default: 2500). If <= 0, distance filtering disabled. */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|AttackChooser", meta=(DisplayName="Max Target Distance"))
+    /** Maximum target distance considered valid. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|AttackChooser")
     float MaxTargetDistance;
 
-    /** Maximum allowed facing angle (degrees) between instigator forward and target for some attacks. If <= 0, angle filtering disabled. */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|AttackChooser", meta=(DisplayName="Max Target Angle Degrees"))
+    /** Maximum allowed facing angle (degrees). */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|AttackChooser")
     float MaxTargetAngleDegrees;
 
-    /** When multiple attacks score the same, break ties randomly if true; otherwise pick the first. */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|AttackChooser", meta=(DisplayName="Random Tie Break"))
+    /** When multiple attacks tie, break ties randomly if true. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|AttackChooser")
     bool bRandomTieBreak;
 
-    /** Optional: Only attacks that match this tag (or are children of it) will be considered valid. */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|AttackChooser|Tags", meta = (DisplayName = "Required Attack Tag"))
+    /** Optional tag filtering for attack selection. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|AttackChooser|Tags")
     FGameplayTag RequiredAttackTag;
 
-    /** Optional: When true, attacks that share the RequiredAttackTag get a small bonus instead of strict filtering. */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|AttackChooser|Tags", meta = (DisplayName = "Prefer Matching Tag Instead Of Filter"))
+    /** When true, unmatched tags are penalized instead of excluded. */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|AttackChooser|Tags")
     bool bPreferTagInsteadOfFilter = false;
 
-    /*
-     * Functions
-    */
+    /* ==========================================================
+     * Public API
+     * ========================================================== */
 
-    /**
-     * Choose an attack from AttackEntries based on scoring logic.
-     * @param Instigator - the actor performing the attack (may be nullptr)
-     * @param Targets - list of relevant targets (can be empty)
-     * @param OutAttack - returned attack entry if the function returns true
-     * @return true if a valid attack was chosen, false otherwise
-     */
-    UFUNCTION(BlueprintCallable, Category = "MCS|AttackChooser", meta=(DisplayName="Choose Attack"))
-    bool ChooseAttack(AActor* Instigator, const TArray<AActor*>& Targets, FMCS_AttackEntry& OutAttack) const;
+     /** Main function that chooses the best attack from AttackEntries. */
+    UFUNCTION(BlueprintCallable, Category = "MCS|AttackChooser")
+    bool ChooseAttack(AActor* Instigator, const TArray<AActor*>& Targets, EMCS_AttackDirection DesiredDirection, FMCS_AttackEntry& OutAttack) const;
 
-    /**
-     * Get all attack entries (read-only copy)
-     */
-    UFUNCTION(BlueprintCallable, Category = "MCS|AttackChooser", meta=(DisplayName="Get Attack Entries"))
+    /** Returns a copy of all loaded attack entries. */
+    UFUNCTION(BlueprintCallable, Category = "MCS|AttackChooser")
     TArray<FMCS_AttackEntry> GetAttackEntries() const { return AttackEntries; }
 
+    /* ==========================================================
+     * Scoring API (BlueprintPure helpers)
+     * ========================================================== */
+
+     /** Computes a score modifier based on tag filtering and preferences. */
+    UFUNCTION(BlueprintPure, Category = "MCS|AttackChooser|Scoring", meta = (DisplayName = "Compute Tag Score"))
+    float ComputeTagScore(const FMCS_AttackEntry& Entry) const;
+
+    /** Computes a score modifier based on distance window. */
+    UFUNCTION(BlueprintPure, Category = "MCS|AttackChooser|Scoring", meta = (DisplayName = "Compute Distance Score"))
+    float ComputeDistanceScore(const FMCS_AttackEntry& Entry, AActor* Instigator, const TArray<AActor*>& Targets) const;
+
+    /** Computes a score modifier based on desired attack direction. */
+    UFUNCTION(BlueprintPure, Category = "MCS|AttackChooser|Scoring", meta = (DisplayName = "Compute Directional Score"))
+    float ComputeDirectionalScore(const FMCS_AttackEntry& Entry, EMCS_AttackDirection DesiredDirection) const;
+
+    /** Combines individual score components into a final result. */
+    UFUNCTION(BlueprintPure, Category = "MCS|AttackChooser|Scoring", meta = (DisplayName = "Aggregate Score"))
+    float AggregateScore(float BaseScore, float TagScore, float DistanceScore, float DirectionScore) const;
+
 protected:
-    /*
-     * Functions
-    */
-    
-    /**
-     * BlueprintNativeEvent allows Blueprints to override the scoring heuristics.
-     * Default implementation calls ScoreAttack_Implementation.
-     *
-     * @param Entry - candidate entry to score
-     * @param Instigator - actor performing attack
-     * @param Targets - array of targets to consider
-     * @return a float score: higher = better. Return -TNumericLimits<float>::Max() to disqualify.
-     */
-    UFUNCTION(BlueprintNativeEvent, BlueprintPure, Category = "MCS|AttackChooser", meta = (DisplayName = "Score Attack"))
-    float ScoreAttack(const FMCS_AttackEntry& Entry, AActor* Instigator, const TArray<AActor*>& Targets) const;
-    virtual float ScoreAttack_Implementation(const FMCS_AttackEntry& Entry, AActor* Instigator, const TArray<AActor*>& Targets) const;
+    /* ==========================================================
+     * Core virtuals
+     * ========================================================== */
 
-    /**
-     * Basic filtering based on MaxTargetDistance and MaxTargetAngleDegrees.
-     * Can be used as a quick pre-check before more complex scoring in ScoreAttack.
-     * @param Entry - candidate entry to check
-     * @param Instigator - actor performing attack
-     * @param Targets - array of targets to consider
-     * @return true if the entry passes basic filters, false otherwise
-     */
+     /** Core scoring entry point (BlueprintNativeEvent). */
+    UFUNCTION(BlueprintNativeEvent, BlueprintPure, Category = "MCS|AttackChooser")
+    float ScoreAttack(const FMCS_AttackEntry& Entry, AActor* Instigator, const TArray<AActor*>& Targets, EMCS_AttackDirection DesiredDirection) const;
+    virtual float ScoreAttack_Implementation(const FMCS_AttackEntry& Entry, AActor* Instigator, const TArray<AActor*>& Targets, EMCS_AttackDirection DesiredDirection) const;
+
+    /** Is entry allowed by basic filters (distance & angle). */
     bool IsEntryAllowedByBasicFilters(const FMCS_AttackEntry& Entry, AActor* Instigator, const TArray<AActor*>& Targets) const;
-
-private:
-    /** Internal flag to track if the DataTable was auto-loaded at least once. */
-    bool bHasAutoLoaded = false;
 };

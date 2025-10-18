@@ -3,270 +3,241 @@
  * Copyright © 2025 God's Studio
  * All Rights Reserved.
  *
- * Free for all to use, copy, and distribute. I hope you learn from this as I learned creating it.
- * =============================================================================
- *
  * Project: Motion Combat System
- * This is a combat system inspired by Unreal Engine’s Motion Matching plugin.
  * Author: Christopher D. Parker
  * Date: 10-14-2025
  * =============================================================================
  * MCS_AttackChooser.cpp
- * Implementation of UMCS_AttackChooser selection and default scoring.
+ * Implementation of UMCS_AttackChooser with modular scoring helpers.
+ * Designers can reuse ComputeTagScore, ComputeDistanceScore, and
+ * ComputeDirectionalScore directly inside Blueprints.
+ * =============================================================================
  */
 
 #include <Choosers/MCS_AttackChooser.h>
 #include "GameFramework/Actor.h"
 #include "Kismet/KismetMathLibrary.h"
 #include "Math/UnrealMathUtility.h"
-#include "Engine/DataTable.h"
 
-
- /*
-  * Constructor
-  */
 UMCS_AttackChooser::UMCS_AttackChooser()
 {
     MaxTargetDistance = 2500.0f;
-    MaxTargetAngleDegrees = 180.0f; // default: allow all angles
+    MaxTargetAngleDegrees = 180.0f;
     bRandomTieBreak = true;
 }
 
-/**
- * Choose an attack from AttackEntries based on scoring logic.
- * @param Instigator - the actor performing the attack (may be nullptr)
- * @param Targets - list of relevant targets (can be empty)
- * @param OutAttack - returned attack entry if the function returns true
- * @return true if a valid attack was chosen, false otherwise
- */
-bool UMCS_AttackChooser::ChooseAttack(AActor* Instigator, const TArray<AActor*>& Targets, FMCS_AttackEntry& OutAttack) const
+/* ==========================================================
+ * Attack Selection
+ * ========================================================== */
+bool UMCS_AttackChooser::ChooseAttack(
+    AActor* Instigator, const TArray<AActor*>& Targets, EMCS_AttackDirection DesiredDirection, FMCS_AttackEntry& OutAttack) const
 {
     if (AttackEntries.IsEmpty())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[MCS_AttackChooser] No attacks available to choose from."));
+        UE_LOG(LogTemp, Warning, TEXT("[MCS_AttackChooser] No attacks to choose from."));
         return false;
     }
 
-    // Track best score(s)
-    float BestScore = -std::numeric_limits<float>::infinity();
+    float BestScore = -TNumericLimits<float>::Max();
     TArray<int32> BestIndices;
-    BestIndices.Reserve(4);
 
-    for (int32 Index = 0; Index < AttackEntries.Num(); ++Index)
+    for (int32 i = 0; i < AttackEntries.Num(); ++i)
     {
-        const FMCS_AttackEntry& Entry = AttackEntries[Index];
-
-        // Quick allowed check (distance/angle) - user can override more specifically in ScoreAttack
+        const FMCS_AttackEntry& Entry = AttackEntries[i];
         if (!IsEntryAllowedByBasicFilters(Entry, Instigator, Targets))
-        {
             continue;
-        }
 
-        // Score using BlueprintNativeEvent (can be overridden in Blueprint)
-        const float Score = ScoreAttack(Entry, Instigator, Targets);
-
+        const float Score = ScoreAttack(Entry, Instigator, Targets, DesiredDirection);
         if (!FMath::IsFinite(Score))
-        {
-            // treat NaN/Inf as disqualify
             continue;
-        }
 
         if (Score > BestScore)
         {
             BestScore = Score;
-            BestIndices.Reset();
-            BestIndices.Add(Index);
+            BestIndices = { i };
         }
         else if (FMath::IsNearlyEqual(Score, BestScore))
         {
-            BestIndices.Add(Index);
+            BestIndices.Add(i);
         }
     }
 
-    if (BestIndices.Num() == 0)
-    {
+    if (BestIndices.IsEmpty())
         return false;
-    }
 
     int32 ChosenIndex = BestIndices[0];
     if (BestIndices.Num() > 1 && bRandomTieBreak)
-    {
         ChosenIndex = BestIndices[FMath::RandRange(0, BestIndices.Num() - 1)];
-    }
 
     OutAttack = AttackEntries[ChosenIndex];
     return true;
 }
 
-/**
- * BlueprintNativeEvent allows Blueprints to override the scoring heuristics.
- * Default implementation calls ScoreAttack_Implementation.
- *
- * @param Entry - candidate entry to score
- * @param Instigator - actor performing attack
- * @param Targets - array of targets to consider
- * @return a float score: higher = better. Return -INFINITY (or very low) to disqualify.
- */
-float UMCS_AttackChooser::ScoreAttack_Implementation(const FMCS_AttackEntry& Entry, AActor* Instigator, const TArray<AActor*>& Targets) const
+/* ==========================================================
+ * Core Scoring Logic
+ * ========================================================== */
+float UMCS_AttackChooser::ScoreAttack_Implementation(
+    const FMCS_AttackEntry& Entry, AActor* Instigator, const TArray<AActor*>& Targets, EMCS_AttackDirection DesiredDirection) const
 {
-    float Score = Entry.SelectionWeight;
+    const float BaseScore = Entry.SelectionWeight;
+    const float TagScore = ComputeTagScore(Entry);
+    const float DistanceScore = ComputeDistanceScore(Entry, Instigator, Targets);
+    const float DirectionScore = ComputeDirectionalScore(Entry, DesiredDirection);
 
-    // =====================================================
-    // 1. GameplayTag filtering or preference
-    // =====================================================
-    if (RequiredAttackTag.IsValid())
+    return AggregateScore(BaseScore, TagScore, DistanceScore, DirectionScore);
+}
+
+/* ==========================================================
+ * BlueprintPure Helper Implementations
+ * ========================================================== */
+
+ /**
+  * Computes a score modifier based on tag filtering and preferences.
+  * @param Entry The attack entry being evaluated.
+  */
+float UMCS_AttackChooser::ComputeTagScore(const FMCS_AttackEntry& Entry) const
+{
+    if (!RequiredAttackTag.IsValid())
+        return 0.f;
+
+    const bool bMatches = Entry.AttackTag.MatchesTag(RequiredAttackTag);
+    if (!bMatches)
     {
-        const bool bMatches = Entry.AttackTag.MatchesTag(RequiredAttackTag);
-
-        if (!bMatches)
-        {
-            if (!bPreferTagInsteadOfFilter)
-            {
-                // Strict filter: completely disqualify this attack
-                return -TNumericLimits<float>::Max();
-            }
-            else
-            {
-                // Soft preference: lower the score by 50%
-                Score *= 0.5f;
-            }
-        }
-        else
-        {
-            // Reward for matching tag
-            Score += 5.0f;
-        }
+        if (!bPreferTagInsteadOfFilter)
+            return -TNumericLimits<float>::Max(); // disqualify
+        return Entry.SelectionWeight * -0.5f;     // soft penalty
     }
 
-    // =====================================================
-    // 2. Distance window scoring using RangeStart / RangeEnd
-    // =====================================================
-    if (Instigator && Targets.Num() > 0)
-    {
-        const FVector InstigatorLoc = Instigator->GetActorLocation();
-
-        // Find the closest valid target
-        AActor* ClosestTarget = nullptr;
-        float ClosestDistSq = TNumericLimits<float>::Max();
-
-        for (AActor* Target : Targets)
-        {
-            if (!IsValid(Target))
-                continue;
-
-            const float DistSq = FVector::DistSquared(InstigatorLoc, Target->GetActorLocation());
-            if (DistSq < ClosestDistSq)
-            {
-                ClosestDistSq = DistSq;
-                ClosestTarget = Target;
-            }
-        }
-
-        if (ClosestTarget)
-        {
-            const float Dist = FMath::Sqrt(ClosestDistSq);
-
-            // Score based on distance window
-            if (Dist < Entry.RangeStart)
-            {
-                // Too close — penalize slightly
-                const float UnderDist = Entry.RangeStart - Dist;
-                Score -= UnderDist * 0.1f; // small penalty for being inside minimum range
-            }
-            else if (Dist > Entry.RangeEnd)
-            {
-                // Too far — disqualify if way out of range
-                if (Dist > Entry.RangeEnd * 1.25f) // beyond 25% past range end
-                {
-                    return -TNumericLimits<float>::Max();
-                }
-
-                // Slight penalty if just beyond range
-                const float OverDist = Dist - Entry.RangeEnd;
-                Score -= OverDist * 0.2f;
-            }
-            else
-            {
-                // Inside valid range window
-                const float RangeCenter = (Entry.RangeStart + Entry.RangeEnd) * 0.5f;
-                const float WindowHalf = (Entry.RangeEnd - Entry.RangeStart) * 0.5f;
-                const float DistanceFromCenter = FMath::Abs(Dist - RangeCenter);
-
-                // Closer to the center of the range window = higher score
-                const float ProximityFactor = 1.0f - (DistanceFromCenter / WindowHalf);
-                const float RangeScore = FMath::Clamp(ProximityFactor, 0.f, 1.f) * 10.f;
-                Score += RangeScore;
-            }
-        }
-    }
-
-    return Score;
+    return 5.f; // reward for match
 }
 
 /**
- * Basic filtering based on MaxTargetDistance and MaxTargetAngleDegrees.
- * Can be used as a quick pre-check before more complex scoring in ScoreAttack.
- * @param Entry - candidate entry to check
- * @param Instigator - actor performing attack
- * @param Targets - array of targets to consider
- * @return true if the entry passes basic filters, false otherwise
+ * Computes a score modifier based on distance window.
+ * @param Entry The attack entry being evaluated.
+ * @param Instigator The actor performing the attack.
+ * @param Targets The potential targets of the attack.
  */
+float UMCS_AttackChooser::ComputeDistanceScore(const FMCS_AttackEntry& Entry, AActor* Instigator, const TArray<AActor*>& Targets) const
+{
+    if (!Instigator || Targets.IsEmpty())
+        return 0.f;
+
+    AActor* ClosestTarget = nullptr;
+    float ClosestDistSq = TNumericLimits<float>::Max();
+    const FVector InstigatorLoc = Instigator->GetActorLocation();
+
+    for (AActor* Target : Targets)
+    {
+        if (!IsValid(Target))
+            continue;
+
+        const float DistSq = FVector::DistSquared(InstigatorLoc, Target->GetActorLocation());
+        if (DistSq < ClosestDistSq)
+        {
+            ClosestDistSq = DistSq;
+            ClosestTarget = Target;
+        }
+    }
+
+    if (!ClosestTarget)
+        return 0.f;
+
+    const float Dist = FMath::Sqrt(ClosestDistSq);
+    if (Dist < Entry.RangeStart)
+        return -(Entry.RangeStart - Dist) * 0.1f;
+
+    if (Dist > Entry.RangeEnd)
+    {
+        if (Dist > Entry.RangeEnd * 1.25f)
+            return -TNumericLimits<float>::Max();
+        return -(Dist - Entry.RangeEnd) * 0.2f;
+    }
+
+    // Inside range window
+    const float Center = (Entry.RangeStart + Entry.RangeEnd) * 0.5f;
+    const float HalfWindow = (Entry.RangeEnd - Entry.RangeStart) * 0.5f;
+    const float Offset = FMath::Abs(Dist - Center);
+    const float ProximityFactor = 1.0f - (Offset / HalfWindow);
+    return FMath::Clamp(ProximityFactor, 0.f, 1.f) * 10.f;
+}
+
+/**
+ * Computes a score modifier based on desired attack direction.
+ * @param Entry The attack entry being evaluated.
+ * @param DesiredDirection The desired attack direction.
+ */
+float UMCS_AttackChooser::ComputeDirectionalScore(const FMCS_AttackEntry& Entry, EMCS_AttackDirection DesiredDirection) const
+{
+    if (Entry.AttackDirection == EMCS_AttackDirection::Omni)
+        return 5.f;
+    if (Entry.AttackDirection == DesiredDirection)
+        return 10.f;
+
+    // Opposite penalties
+    if ((Entry.AttackDirection == EMCS_AttackDirection::Forward && DesiredDirection == EMCS_AttackDirection::Backward) ||
+        (Entry.AttackDirection == EMCS_AttackDirection::Backward && DesiredDirection == EMCS_AttackDirection::Forward) ||
+        (Entry.AttackDirection == EMCS_AttackDirection::Left && DesiredDirection == EMCS_AttackDirection::Right) ||
+        (Entry.AttackDirection == EMCS_AttackDirection::Right && DesiredDirection == EMCS_AttackDirection::Left))
+    {
+        return -10.f;
+    }
+
+    return 0.f;
+}
+
+/**
+ * Aggregates individual score components into a final score.
+ * Designers can override this in Blueprint to weight components differently.
+ * @param BaseScore The base selection weight of the attack.
+ * @param TagScore The score modifier from tag filtering.
+ * @param DistanceScore The score modifier from distance evaluation.
+ * @param DirectionScore The score modifier from directional matching.
+ */
+float UMCS_AttackChooser::AggregateScore(float BaseScore, float TagScore, float DistanceScore, float DirectionScore) const
+{
+    // Designers can override this in Blueprint to weight components differently.
+    return BaseScore + TagScore + DistanceScore + DirectionScore;
+}
+
+/* ==========================================================
+ * Basic Entry Filtering
+ * ==========================================================
+ */
+
+ /**
+  * Is entry allowed by basic filters (distance & angle).
+  */
 bool UMCS_AttackChooser::IsEntryAllowedByBasicFilters(const FMCS_AttackEntry& Entry, AActor* Instigator, const TArray<AActor*>& Targets) const
 {
-    // If there's no instigator or no meaningful spatial data, we cannot filter on distance/angle.
     if (!Instigator)
-    {
-        // allow by default — ScoreAttack implementations should handle restrictions relying on actor data
         return true;
-    }
-
-    // If there are no targets, allow by default.
-    if (Targets.Num() == 0)
-    {
+    if (Targets.IsEmpty())
         return true;
-    }
 
-    // Check at least one target passes distance/angle constraints
-    const FVector InstigatorLocation = Instigator->GetActorLocation();
+    const FVector InstigatorLoc = Instigator->GetActorLocation();
     const FVector InstigatorForward = Instigator->GetActorForwardVector();
 
-    for (TObjectPtr<AActor> TargetPtr : Targets)
+    for (AActor* Target : Targets)
     {
-        if (!TargetPtr)
-        {
+        if (!IsValid(Target))
             continue;
-        }
 
-        const FVector TargetLocation = TargetPtr->GetActorLocation();
+        const FVector TargetLoc = Target->GetActorLocation();
+        const float DistSq = FVector::DistSquared(InstigatorLoc, TargetLoc);
+        if (MaxTargetDistance > 0.f && DistSq > FMath::Square(MaxTargetDistance))
+            continue;
 
-        // Distance check
-        if (MaxTargetDistance > 0.0f)
+        if (MaxTargetAngleDegrees > 0.f && MaxTargetAngleDegrees < 180.f)
         {
-            const float DistSq = FVector::DistSquared(InstigatorLocation, TargetLocation);
-            if (DistSq > FMath::Square(MaxTargetDistance))
-            {
-                // too far for this target; check next target
-                continue;
-            }
-        }
-
-        // Angle check
-        if (MaxTargetAngleDegrees > 0.0f && MaxTargetAngleDegrees < 180.0f)
-        {
-            const FVector ToTarget = (TargetLocation - InstigatorLocation).GetSafeNormal();
+            const FVector ToTarget = (TargetLoc - InstigatorLoc).GetSafeNormal();
             const float CosAngle = FVector::DotProduct(InstigatorForward, ToTarget);
             const float AngleDeg = FMath::RadiansToDegrees(FMath::Acos(FMath::Clamp(CosAngle, -1.0f, 1.0f)));
             if (AngleDeg > MaxTargetAngleDegrees)
-            {
-                // not facing enough; check next target
                 continue;
-            }
         }
 
-        // If we reach here at least one target is acceptable
-        return true;
+        return true; // Passed
     }
 
-    // No targets passed the basic filters
     return false;
 }

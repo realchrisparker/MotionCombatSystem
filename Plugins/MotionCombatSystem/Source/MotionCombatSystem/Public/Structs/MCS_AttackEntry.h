@@ -23,28 +23,18 @@
 #include "Animation/AnimMontage.h"
 #include "UObject/ObjectMacros.h"
 #include "GameplayTagContainer.h"
+#include <Enums/EMCS_AttackTypes.h>
+#include <Enums/EMCS_AttackDirections.h>
+#include <Structs/MCS_AttackHitbox.h>
 #include "MCS_AttackEntry.generated.h"
 
-/**
- * Attack type enum - categorize attacks (used by chooser logic to filter/select).
- */
-UENUM(BlueprintType)
-enum class EFMCS_AttackType : uint8
-{
-	Light      UMETA(DisplayName = "Light"),
-	Heavy      UMETA(DisplayName = "Heavy"),
-	Charge     UMETA(DisplayName = "Charge"),
-	Thrown     UMETA(DisplayName = "Thrown"),
-	Special    UMETA(DisplayName = "Special"),
-	Unknown    UMETA(DisplayName = "Unknown")
-};
 
 /**
  * FMCS_AttackEntry
  * Simplified core structure used in Motion Combat System.
  * Supports DataTable integration and Blueprint editing.
  */
-USTRUCT(BlueprintType)
+USTRUCT(BlueprintType, meta = (DisplayName = "Motion Combat System Attack Entry"))
 struct MOTIONCOMBATSYSTEM_API FMCS_AttackEntry : public FTableRowBase
 {
 	GENERATED_BODY()
@@ -54,7 +44,7 @@ public:
 	// Default constructor with sensible defaults
 	FMCS_AttackEntry()
 		: AttackName(NAME_None)
-		, AttackType(EFMCS_AttackType::Unknown)
+		, AttackType(EMCS_AttackType::Unknown)
 		, AttackMontage(nullptr)
 		, MontageSection(NAME_None)
 		, Damage(0.f)
@@ -73,24 +63,32 @@ public:
 	 * Identification & categories
 	 * --------------------------- */
 
+	 // Optionally categorize this attack for organizational purposes
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack", meta = (DisplayName = "Category"))
+	FName Category = NAME_None;
+
 	// Friendly name for designer display
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack", meta = (DisplayName = "Name"))
 	FName AttackName;
 
 	// Category/type used by chooser to group/select attacks
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack")
-	EFMCS_AttackType AttackType = EFMCS_AttackType::Unknown;
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack", meta = (DisplayName = "Attack Type"))
+	EMCS_AttackType AttackType = EMCS_AttackType::Unknown;
+
+	// Direction this attack is intended to be used from
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack", meta = (DisplayName = "Direction"))
+	EMCS_AttackDirection AttackDirection = EMCS_AttackDirection::Forward;
 
 	/* ---------------------------
 	 * Animation / Montage
 	 * --------------------------- */
 
 	// The montage to play for this attack (TObjectPtr preferred over raw pointer)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack", meta = (DisplayName = "Montage"))
 	TObjectPtr<UAnimMontage> AttackMontage = nullptr;
 
 	// Optionally play from a specific montage section
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack", meta = (DisplayName = "Montage Section"))
 	FName MontageSection = NAME_None;
 
 	/* ---------------------------
@@ -98,14 +96,14 @@ public:
 	 * --------------------------- */
 
 	// Primary damage this attack inflicts (designer-tunable)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack", meta = (ClampMin = "0.0", DisplayName = "Damage"))
 	float Damage = 0.f;
 
 	// Range start and end define the distance window for which this attack is valid
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack", meta = (ClampMin = "0.0", DisplayName = "Range Start"))
 	float RangeStart = 0.f;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack", meta = (ClampMin = "0.0", DisplayName = "Range End"))
 	float RangeEnd = 150.f;
 
 	/* ---------------------------
@@ -113,7 +111,7 @@ public:
 	 * --------------------------- */
 
 	// Designer weight to prefer certain attacks when multiple are valid (higher = more likely)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack", meta = (ClampMin = "0.0"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack", meta = (ClampMin = "0.0", DisplayName = "Selection Weight"))
 	float SelectionWeight = 1.0f;
 
 	/* ---------------------------
@@ -121,7 +119,7 @@ public:
 	 * --------------------------- */
 
 	 // Primary gameplay tag used to identify or trigger this attack in GAS.
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack|GAS")
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack", meta = (DisplayName = "Attack Gameplay Tag"))
 	FGameplayTag AttackTag;
 
 	/*

@@ -47,6 +47,13 @@ void UMCS_CombatCoreComponent::BeginPlay()
 
     // Load attacks from DataTable if assigned
     LoadAttacksFromDataTable();
+
+    // Bind to targeting updates
+    if (TargetingSubsystem)
+    {
+        TargetingSubsystem->OnTargetsUpdated.AddDynamic(this, &UMCS_CombatCoreComponent::HandleTargetsUpdated);
+    }
+
 }
 
 /*
@@ -80,8 +87,10 @@ void UMCS_CombatCoreComponent::LoadAttacksFromDataTable()
 
 /*
  * Chooses an appropriate attack using AttackChooser and available targets
+ * @param DesiredType - type of attack to select
+ * @param DesiredDirection - direction of the attack in world space
  */
-bool UMCS_CombatCoreComponent::SelectAttack(EFMCS_AttackType DesiredType)
+bool UMCS_CombatCoreComponent::SelectAttack(EMCS_AttackType DesiredType, EMCS_AttackDirection DesiredDirection)
 {
     if (!AttackChooser)
         return false;
@@ -100,14 +109,15 @@ bool UMCS_CombatCoreComponent::SelectAttack(EFMCS_AttackType DesiredType)
         }
     }
 
-    if (FilteredEntries.Num() == 0)
+    if (FilteredEntries.IsEmpty())
     {
         if (bDebugCombat)
-            UE_LOG(LogTemp, Warning, TEXT("[CombatCore] No attacks found of type: %d"), (uint8)DesiredType);
+            UE_LOG(LogTemp, Warning, TEXT("[CombatCore] No attacks found of type: %s"),
+                *UEnum::GetValueAsString(DesiredType));
         return false;
     }
 
-    // Get targets from subsystem
+    // Gather valid targets from the subsystem
     TArray<AActor*> Targets;
     if (TargetingSubsystem)
     {
@@ -118,16 +128,14 @@ bool UMCS_CombatCoreComponent::SelectAttack(EFMCS_AttackType DesiredType)
         }
     }
 
-    // Create a temporary chooser clone (optional) or just reuse
+    // Use the filtered list temporarily
     FMCS_AttackEntry ChosenAttack;
-
-    // Temporarily use FilteredEntries instead of full list
-    TArray<FMCS_AttackEntry> OriginalEntries = AttackChooser->AttackEntries;
+    const TArray<FMCS_AttackEntry> OriginalEntries = AttackChooser->AttackEntries;
     AttackChooser->AttackEntries = FilteredEntries;
 
-    const bool bSuccess = AttackChooser->ChooseAttack(OwnerActor, Targets, ChosenAttack);
+    const bool bSuccess = AttackChooser->ChooseAttack(OwnerActor, Targets, DesiredDirection, ChosenAttack);
 
-    // Restore full list after selection
+    // Restore full list
     AttackChooser->AttackEntries = OriginalEntries;
 
     if (bSuccess)
@@ -136,21 +144,26 @@ bool UMCS_CombatCoreComponent::SelectAttack(EFMCS_AttackType DesiredType)
 
         if (bDebugCombat)
         {
-            UE_LOG(LogTemp, Log, TEXT("[CombatCore] Selected %s attack: %s"),
+            UE_LOG(LogTemp, Log,
+                TEXT("[CombatCore] Selected %s attack: %s (Direction: %s)"),
                 *UEnum::GetValueAsString(DesiredType),
-                *CurrentAttack.AttackName.ToString());
+                *CurrentAttack.AttackName.ToString(),
+                *UEnum::GetValueAsString(CurrentAttack.AttackDirection));
         }
     }
 
     return bSuccess;
 }
 
+
 /*
  * Plays the selected attack's montage if valid
+ * @param DesiredType - type of attack to perform
+ * @param DesiredDirection - direction of the attack in world space
  */
-void UMCS_CombatCoreComponent::PerformAttack(EFMCS_AttackType DesiredType)
+void UMCS_CombatCoreComponent::PerformAttack(EMCS_AttackType DesiredType, EMCS_AttackDirection DesiredDirection)
 {
-    if (SelectAttack(DesiredType))
+    if (SelectAttack(DesiredType, DesiredDirection))
     {
         ACharacter* CharacterOwner = Cast<ACharacter>(GetOwner());
         if (!CharacterOwner || !CurrentAttack.HasValidMontage())
@@ -170,13 +183,21 @@ void UMCS_CombatCoreComponent::PerformAttack(EFMCS_AttackType DesiredType)
             }
 
             if (bDebugCombat)
-                UE_LOG(LogTemp, Log, TEXT("[CombatCore] Playing montage: %s"), *CurrentAttack.AttackMontage->GetName());
+            {
+                UE_LOG(LogTemp, Log,
+                    TEXT("[CombatCore] Executing %s %s attack using montage: %s"),
+                    *UEnum::GetValueAsString(DesiredDirection),
+                    *UEnum::GetValueAsString(DesiredType),
+                    *CurrentAttack.AttackMontage->GetName());
+            }
         }
     }
     else if (bDebugCombat)
     {
-        UE_LOG(LogTemp, Warning, TEXT("[CombatCore] PerformAttack failed - no valid %s attack found."),
-            *UEnum::GetValueAsString(DesiredType));
+        UE_LOG(LogTemp, Warning,
+            TEXT("[CombatCore] PerformAttack failed — no valid %s attack found for direction %s."),
+            *UEnum::GetValueAsString(DesiredType),
+            *UEnum::GetValueAsString(DesiredDirection));
     }
 }
 
@@ -202,4 +223,92 @@ AActor* UMCS_CombatCoreComponent::GetClosestTarget(float MaxRange) const
 AActor* UMCS_CombatCoreComponent::GetOwnerActor() const
 {
     return GetOwner();
+}
+
+// Handler for TargetingSubsystem target updates
+void UMCS_CombatCoreComponent::HandleTargetsUpdated(const TArray<FMCS_TargetInfo>& NewTargets, int32 NewTargetCount)
+{
+    if (bDebugCombat)
+    {
+        UE_LOG(LogTemp, Log, TEXT("[CombatCore] Target list changed: %d targets in range."), NewTargetCount);
+    }
+
+    // Fire the exposed Blueprint event
+    if (OnTargetingUpdated.IsBound())
+    {
+        OnTargetingUpdated.Broadcast(NewTargets, NewTargetCount);
+    }
+}
+
+/**
+ * Utility to convert 2D movement input into an EMCS_AttackDirection enum value
+ * @param MoveInput - 2D movement input vector (X=Forward/Backward, Y=Left/Right)
+ * @return Corresponding EMCS_AttackDirection value
+ */
+EMCS_AttackDirection UMCS_CombatCoreComponent::GetAttackDirection(const FVector2D& MoveInput) const
+{
+    // If no significant input, treat as Omni (neutral)
+    if (MoveInput.IsNearlyZero(0.2f))
+    {
+        return EMCS_AttackDirection::Omni;
+    }
+
+    // Get the controlling actor (usually the player character)
+    const AActor* OwnerActor = GetOwner();
+    if (!OwnerActor)
+    {
+        return EMCS_AttackDirection::Omni;
+    }
+
+    // Get control rotation (camera-facing)
+    FRotator ControlRot = OwnerActor->GetInstigatorController()
+        ? OwnerActor->GetInstigatorController()->GetControlRotation()
+        : FRotator::ZeroRotator;
+
+    // Zero out pitch/roll — we only care about yaw
+    ControlRot.Pitch = 0.f;
+    ControlRot.Roll = 0.f;
+
+    const FVector CameraForward = FRotationMatrix(ControlRot).GetUnitAxis(EAxis::X);
+    const FVector CameraRight = FRotationMatrix(ControlRot).GetUnitAxis(EAxis::Y);
+
+    // Convert 2D input into a world-space direction
+    FVector DesiredDirectionWS = (CameraForward * MoveInput.Y + CameraRight * MoveInput.X).GetSafeNormal();
+
+    if (DesiredDirectionWS.IsNearlyZero())
+    {
+        return EMCS_AttackDirection::Omni;
+    }
+
+    // Get forward vector of actor (used to compare relative direction)
+    const FVector ActorForward = OwnerActor->GetActorForwardVector();
+    const FVector ActorRight = OwnerActor->GetActorRightVector();
+
+    // Calculate dot products
+    const float ForwardDot = FVector::DotProduct(ActorForward, DesiredDirectionWS);
+    const float RightDot = FVector::DotProduct(ActorRight, DesiredDirectionWS);
+
+    // Determine facing quadrant using dot thresholds
+    const float ForwardThreshold = 0.5f;  // cosine ~60 degrees
+    const float SideThreshold = 0.5f;
+
+    if (ForwardDot > ForwardThreshold)
+    {
+        return EMCS_AttackDirection::Forward;
+    }
+    else if (ForwardDot < -ForwardThreshold)
+    {
+        return EMCS_AttackDirection::Backward;
+    }
+    else if (RightDot > SideThreshold)
+    {
+        return EMCS_AttackDirection::Right;
+    }
+    else if (RightDot < -SideThreshold)
+    {
+        return EMCS_AttackDirection::Left;
+    }
+
+    // Fallback if between zones
+    return EMCS_AttackDirection::Omni;
 }

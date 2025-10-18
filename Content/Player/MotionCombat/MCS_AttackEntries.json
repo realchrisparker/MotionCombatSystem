@@ -1,13 +1,13 @@
 [
-  { "Name": "Light_Swipe_Close",   "AttackType": "Light", "RangeStart": 0.0,   "RangeEnd": 100.0,  "SelectionWeight": 1.5 },
-  { "Name": "Light_QuickJab",      "AttackType": "Light", "RangeStart": 50.0,  "RangeEnd": 200.0,  "SelectionWeight": 2.0 },
-  { "Name": "Light_LowSlash",      "AttackType": "Light", "RangeStart": 120.0, "RangeEnd": 300.0,  "SelectionWeight": 1.2 },
-  { "Name": "Light_Flourish",      "AttackType": "Light", "RangeStart": 200.0, "RangeEnd": 500.0,  "SelectionWeight": 0.8 },
-  { "Name": "Light_RangedFeint",   "AttackType": "Light", "RangeStart": 350.0, "RangeEnd": 800.0,  "SelectionWeight": 0.5 },
+  { "Name": "Light_Swipe_Close",   "AttackType": "Light", "RangeStart": 0.0,   "RangeEnd": 100.0,  "SelectionWeight": 1.5, "AttackDirection": "Forward" },
+  { "Name": "Light_QuickJab",      "AttackType": "Light", "RangeStart": 50.0,  "RangeEnd": 200.0,  "SelectionWeight": 2.0, "AttackDirection": "Forward" },
+  { "Name": "Light_LowSlash",      "AttackType": "Light", "RangeStart": 120.0, "RangeEnd": 300.0,  "SelectionWeight": 1.2, "AttackDirection": "Forward" },
+  { "Name": "Light_Flourish",      "AttackType": "Light", "RangeStart": 200.0, "RangeEnd": 500.0,  "SelectionWeight": 0.8, "AttackDirection": "Forward" },
+  { "Name": "Light_RangedFeint",   "AttackType": "Light", "RangeStart": 350.0, "RangeEnd": 800.0,  "SelectionWeight": 0.5, "AttackDirection": "Forward" },
 
-  { "Name": "Heavy_Overhead",      "AttackType": "Heavy", "RangeStart": 0.0,   "RangeEnd": 150.0,  "SelectionWeight": 1.0 },
-  { "Name": "Heavy_ShoulderBash",  "AttackType": "Heavy", "RangeStart": 60.0,  "RangeEnd": 260.0,  "SelectionWeight": 1.6 },
-  { "Name": "Heavy_SweepingBlow",  "AttackType": "Heavy", "RangeStart": 150.0, "RangeEnd": 420.0,  "SelectionWeight": 1.4 },
-  { "Name": "Heavy_PowerLunge",    "AttackType": "Heavy", "RangeStart": 300.0, "RangeEnd": 700.0,  "SelectionWeight": 0.9 },
-  { "Name": "Heavy_ChargedSmash",  "AttackType": "Heavy", "RangeStart": 100.0, "RangeEnd": 350.0,  "SelectionWeight": 1.8 }
+  { "Name": "Heavy_Overhead",      "AttackType": "Heavy", "RangeStart": 0.0,   "RangeEnd": 150.0,  "SelectionWeight": 1.0, "AttackDirection": "Forward" },
+  { "Name": "Heavy_ShoulderBash",  "AttackType": "Heavy", "RangeStart": 60.0,  "RangeEnd": 260.0,  "SelectionWeight": 1.6, "AttackDirection": "Forward" },
+  { "Name": "Heavy_SweepingBlow",  "AttackType": "Heavy", "RangeStart": 150.0, "RangeEnd": 420.0,  "SelectionWeight": 1.4, "AttackDirection": "Forward" },
+  { "Name": "Heavy_PowerLunge",    "AttackType": "Heavy", "RangeStart": 300.0, "RangeEnd": 700.0,  "SelectionWeight": 0.9, "AttackDirection": "Forward" },
+  { "Name": "Heavy_ChargedSmash",  "AttackType": "Heavy", "RangeStart": 100.0, "RangeEnd": 350.0,  "SelectionWeight": 1.8, "AttackDirection": "Forward" }
 ]

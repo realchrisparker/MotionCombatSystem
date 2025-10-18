@@ -61,10 +61,8 @@ void UMCS_TargetingSubsystem::Initialize(FSubsystemCollectionBase& Collection)
             }
         });
 
-    // UE_LOG(LogTemp, Log, TEXT("%s UMCS_TargetingSubsystem::Initialize (ScanRadius=%.0f)"),
-    //     *MakeWorldTag(), ScanRadius);
-    UE_LOG(LogTemp, Log, TEXT("[MCS_TargetingSubsystem] Initialized in World: %s, Type: %d"),
-        *CachedWorld->GetName(), (int32)CachedWorld->WorldType);
+    // Start with scanning enabled
+    bIsScanningEnabled = true;
 }
 
 void UMCS_TargetingSubsystem::Deinitialize()
@@ -120,6 +118,16 @@ void UMCS_TargetingSubsystem::RegisterTarget(AActor* TargetActor)
     RegisteredTargets.Add(NewTarget);
 
     UE_LOG(LogTemp, Warning, TEXT("[MCS_TargetingSubsystem] Registered Target: %s"), *TargetActor->GetName());
+
+    // Notify listeners that the target list has been updated
+    if (RegisteredTargets.Num() != LastTargetCount)
+    {
+        LastTargetCount = RegisteredTargets.Num();
+        if (OnTargetsUpdated.IsBound())
+        {
+            OnTargetsUpdated.Broadcast(RegisteredTargets, RegisteredTargets.Num());
+        }
+    }
 }
 
 void UMCS_TargetingSubsystem::UnregisterTarget(AActor* TargetActor)
@@ -135,6 +143,16 @@ void UMCS_TargetingSubsystem::UnregisterTarget(AActor* TargetActor)
     if (Removed > 0)
     {
         UE_LOG(LogTemp, Warning, TEXT("[MCS_TargetingSubsystem] Unregistered Target: %s"), *TargetActor->GetName());
+    }
+
+    // Notify listeners if any were removed
+    if (RegisteredTargets.Num() != LastTargetCount)
+    {
+        LastTargetCount = RegisteredTargets.Num();
+        if (OnTargetsUpdated.IsBound())
+        {
+            OnTargetsUpdated.Broadcast(RegisteredTargets, RegisteredTargets.Num());
+        }
     }
 }
 
@@ -239,6 +257,16 @@ void UMCS_TargetingSubsystem::ScanForTargets()
     }
 
     UE_LOG(LogTemp, Warning, TEXT("[MCS_TargetingSubsystem] Scanned %d valid targets within %.0f units."), RegisteredTargets.Num(), ScanRadius);
+
+    // Notify listeners that the target list has been updated
+    if (RegisteredTargets.Num() != LastTargetCount)
+    {
+        LastTargetCount = RegisteredTargets.Num();
+        if (OnTargetsUpdated.IsBound())
+        {
+            OnTargetsUpdated.Broadcast(RegisteredTargets, RegisteredTargets.Num());
+        }
+    }
 }
 
 AActor* UMCS_TargetingSubsystem::GetClosestTarget(const FVector& FromLocation, float MaxRange) const
@@ -275,4 +303,43 @@ void UMCS_TargetingSubsystem::RemoveOutOfRangeTargets(const FVector& FromLocatio
             const float Distance = FVector::Dist(FromLocation, Info.TargetActor->GetActorLocation());
             return Distance > ScanRadius; // Remove if too far
         });
+}
+
+void UMCS_TargetingSubsystem::SetTargetScanningEnabled(bool bEnable)
+{
+    if (!IsValid(CachedWorld))
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[MCS_TargetingSubsystem] Cannot toggle scanning — no valid world."));
+        return;
+    }
+
+    if (bIsScanningEnabled == bEnable)
+    {
+        // No change
+        return;
+    }
+
+    bIsScanningEnabled = bEnable;
+
+    FTimerManager& TimerMgr = CachedWorld->GetTimerManager();
+
+    if (bIsScanningEnabled)
+    {
+        // Start (or resume) scanning
+        TimerMgr.SetTimer(
+            ScanTimerHandle,
+            this,
+            &UMCS_TargetingSubsystem::ScanForTargets,
+            TargetScanInterval,
+            true);
+
+        UE_LOG(LogTemp, Log, TEXT("[MCS_TargetingSubsystem] Target scanning ENABLED."));
+    }
+    else
+    {
+        // Stop scanning and clear targets (optional)
+        TimerMgr.ClearTimer(ScanTimerHandle);
+
+        UE_LOG(LogTemp, Log, TEXT("[MCS_TargetingSubsystem] Target scanning DISABLED."));
+    }
 }

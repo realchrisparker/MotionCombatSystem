@@ -27,27 +27,18 @@
 #include "CoreMinimal.h"
 #include "Subsystems/WorldSubsystem.h"
 #include <Interfaces/MCS_CombatTargetInterface.h>
+#include <Structs/MCS_TargetInfo.h>
 #include "MCS_TargetingSubsystem.generated.h"
 
 class AActor;
 
-/**
- * Struct to hold targeting info for registered enemies.
- */
-USTRUCT(BlueprintType, meta=(DisplayName = "MCS Target Info"))
-struct FMCS_TargetInfo
-{
-	GENERATED_BODY()
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Targeting")
-	TObjectPtr<AActor> TargetActor = nullptr;
+/*
+ * Delegates
+*/
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Targeting")
-	float DistanceFromPlayer = 0.0f;
-
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Targeting")
-	bool bIsValid = false;
-};
+// Delegate broadcast when the target list is updated
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnTargetsUpdatedSignature, const TArray<FMCS_TargetInfo>&, NewTargetList, int32, NumTargets);
 
 
 /**
@@ -86,18 +77,13 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "MCS|Targeting")
 	void ScanForTargets();
 
-	// // =========================
-	// // Tickable Interface
-	// // =========================
+	/** Enables or disables automatic target scanning */
+	UFUNCTION(BlueprintCallable, Category = "MCS|Targeting")
+	void SetTargetScanningEnabled(bool bEnable);
 
-	// // Override to enable ticking
-	// virtual void Tick(float DeltaTime) override;
-
-	// // Override to provide a stat ID for profiling
-	// virtual TStatId GetStatId() const override;
-
-	// // Always tickable
-	// virtual bool IsTickable() const override { return true; }
+	/** Returns whether target scanning is currently active */
+	UFUNCTION(BlueprintPure, Category = "MCS|Targeting")
+	bool IsTargetScanningEnabled() const { return bIsScanningEnabled; }
 
 	// =========================
 	// WorldSubsystem lifecycle overrides
@@ -109,6 +95,14 @@ public:
 	// Optional: log when (de)initialized for sanity checks.
 	virtual void Initialize(FSubsystemCollectionBase& Collection) override;
 	virtual void Deinitialize() override;
+
+	/*
+	 * Properties
+	*/
+
+	/** Event triggered whenever the RegisteredTargets array changes (added or removed). */
+	UPROPERTY(BlueprintAssignable, Category = "Targeting|Events")
+	FOnTargetsUpdatedSignature OnTargetsUpdated;
 
 protected:
 	/*
@@ -152,6 +146,12 @@ private:
 	// Handy label we’ll use in logs so we can see which world is speaking.
 	FString MakeWorldTag() const;
 
+	// Last known target count, used to avoid redundant broadcasts
+	int32 LastTargetCount = 0;
+
+	/** Whether target scanning is currently active */
+	bool bIsScanningEnabled = true;
+	
 	/*
 	 * Functions
 	*/

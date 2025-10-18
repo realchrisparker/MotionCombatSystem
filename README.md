@@ -138,4 +138,4 @@ Coming soon — setup guide will include instructions for integrating the MCS pl
 ***
 
 # 🏗️ FAB Content Used
-- Paragon: Twinblast (https://www.fab.com/listings/9fa88852-5711-42e1-94fa-2491498a64da)
+- None

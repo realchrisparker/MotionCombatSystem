@@ -146,4 +146,4 @@ __pycache__/
 *.pyc
 
 # Ignore specific folders or files (customize as needed) (Many are paid assets and can't be shared)
-*Content/ParagonTwinblast/
+*Content/Fighter_Animations/
