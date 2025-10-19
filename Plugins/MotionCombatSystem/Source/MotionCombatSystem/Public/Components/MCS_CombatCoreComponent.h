@@ -21,10 +21,15 @@
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
 #include "Engine/DataTable.h"
+#include "Animation/AnimInstance.h"
+#include "Animation/AnimMontage.h"
+#include "Animation/AnimNotifies/AnimNotify.h"
+#include "Animation/AnimNotifies/AnimNotifyState.h"
 #include <Structs/MCS_AttackEntry.h>
 #include <SubSystems/MCS_TargetingSubsystem.h>
 #include <Choosers/MCS_AttackChooser.h>
-// #include <Structs/MCS_TargetInfo.h>
+#include <AnimNotifyStates/AnimNotifyState_MCSHitboxWindow.h>
+#include <Components/MCS_CombatHitboxComponent.h>
 #include "MCS_CombatCoreComponent.generated.h"
 
 
@@ -131,4 +136,21 @@ private:
     // Handler for TargetingSubsystem target updates
     UFUNCTION()
     void HandleTargetsUpdated(const TArray<FMCS_TargetInfo>& NewTargets, int32 NewTargetCount);
+
+    /** Cached list of hitbox window data parsed from the current montage */
+    TArray<FMCS_AttackHitbox> CachedHitboxWindows;
+
+    /** Cached pointer to owner’s hitbox component */
+    TObjectPtr<UMCS_CombatHitboxComponent> CachedHitboxComp;
+
+    // Keep track of which notify CDOs we’ve bound so we can unbind safely
+    UPROPERTY() TArray<TObjectPtr<UAnimNotifyState_MCSHitboxWindow>> BoundHitboxNotifies;
+
+    // Subscribe/unsubscribe to all hitbox notifies used by a montage
+    void BindHitboxNotifiesForMontage(UAnimMontage* Montage);
+    void UnbindAllHitboxNotifies();
+
+    // Callback targets for notify broadcasts
+    UFUNCTION() void HandleHitboxNotifyBegin(FMCS_AttackHitbox& Hitbox);
+    UFUNCTION() void HandleHitboxNotifyEnd(FMCS_AttackHitbox& Hitbox);
 };

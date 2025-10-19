@@ -18,7 +18,7 @@
 
 #include <Components/MCS_CombatCoreComponent.h>
 #include "Kismet/GameplayStatics.h"
-#include "Animation/AnimInstance.h"
+#include "Animation/AnimInstance.h" 
 #include "GameFramework/Character.h"
 
 
@@ -32,6 +32,12 @@ UMCS_CombatCoreComponent::UMCS_CombatCoreComponent()
 void UMCS_CombatCoreComponent::BeginPlay()
 {
     Super::BeginPlay();
+
+    if (GetOwnerActor())
+    {
+        // Cache hitbox component reference
+        CachedHitboxComp = GetOwnerActor()->FindComponentByClass<UMCS_CombatHitboxComponent>();
+    }
 
     // Get the targeting subsystem from world
     if (UWorld* World = GetWorld())
@@ -56,9 +62,7 @@ void UMCS_CombatCoreComponent::BeginPlay()
 
 }
 
-/*
- * Loads all FMCS_AttackEntry rows from the DataTable into the AttackChooser
- */
+// Loads all FMCS_AttackEntry rows from the DataTable into the AttackChooser
 void UMCS_CombatCoreComponent::LoadAttacksFromDataTable()
 {
     if (!AttackDataTable)
@@ -89,7 +93,7 @@ void UMCS_CombatCoreComponent::LoadAttacksFromDataTable()
  * Chooses an appropriate attack using AttackChooser and available targets
  * @param DesiredType - type of attack to select
  * @param DesiredDirection - direction of the attack in world space
- */
+*/
 bool UMCS_CombatCoreComponent::SelectAttack(EMCS_AttackType DesiredType, EMCS_AttackDirection DesiredDirection)
 {
     if (!AttackChooser)
@@ -97,7 +101,9 @@ bool UMCS_CombatCoreComponent::SelectAttack(EMCS_AttackType DesiredType, EMCS_At
 
     AActor* OwnerActor = GetOwnerActor();
     if (!OwnerActor)
+    {
         return false;
+    }
 
     // Filter attacks by requested type
     TArray<FMCS_AttackEntry> FilteredEntries;
@@ -112,8 +118,9 @@ bool UMCS_CombatCoreComponent::SelectAttack(EMCS_AttackType DesiredType, EMCS_At
     if (FilteredEntries.IsEmpty())
     {
         if (bDebugCombat)
-            UE_LOG(LogTemp, Warning, TEXT("[CombatCore] No attacks found of type: %s"),
-                *UEnum::GetValueAsString(DesiredType));
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[CombatCore] No attacks found of type: %s"), *UEnum::GetValueAsString(DesiredType));
+        }
         return false;
     }
 
@@ -124,7 +131,9 @@ bool UMCS_CombatCoreComponent::SelectAttack(EMCS_AttackType DesiredType, EMCS_At
         for (const FMCS_TargetInfo& Info : TargetingSubsystem->GetAllTargets())
         {
             if (IsValid(Info.TargetActor))
+            {
                 Targets.Add(Info.TargetActor);
+            }
         }
     }
 
@@ -144,60 +153,55 @@ bool UMCS_CombatCoreComponent::SelectAttack(EMCS_AttackType DesiredType, EMCS_At
 
         if (bDebugCombat)
         {
-            UE_LOG(LogTemp, Log,
-                TEXT("[CombatCore] Selected %s attack: %s (Direction: %s)"),
-                *UEnum::GetValueAsString(DesiredType),
-                *CurrentAttack.AttackName.ToString(),
-                *UEnum::GetValueAsString(CurrentAttack.AttackDirection));
+            UE_LOG(LogTemp, Log, TEXT("[CombatCore] Selected %s attack: %s (Direction: %s)"), *UEnum::GetValueAsString(DesiredType), *CurrentAttack.AttackName.ToString(), *UEnum::GetValueAsString(CurrentAttack.AttackDirection));
         }
     }
 
     return bSuccess;
 }
 
-
 /*
  * Plays the selected attack's montage if valid
  * @param DesiredType - type of attack to perform
  * @param DesiredDirection - direction of the attack in world space
- */
+*/
 void UMCS_CombatCoreComponent::PerformAttack(EMCS_AttackType DesiredType, EMCS_AttackDirection DesiredDirection)
 {
-    if (SelectAttack(DesiredType, DesiredDirection))
+    if (!SelectAttack(DesiredType, DesiredDirection))
     {
-        ACharacter* CharacterOwner = Cast<ACharacter>(GetOwner());
-        if (!CharacterOwner || !CurrentAttack.HasValidMontage())
+        if (bDebugCombat)
         {
-            if (bDebugCombat)
-                UE_LOG(LogTemp, Warning, TEXT("[CombatCore] Invalid attack or character."));
-            return;
+            UE_LOG(LogTemp, Warning, TEXT("[CombatCore] PerformAttack failed — no valid %s attack for %s."),
+                *UEnum::GetValueAsString(DesiredType), *UEnum::GetValueAsString(DesiredDirection));
         }
-
-        UAnimInstance* AnimInstance = CharacterOwner->GetMesh()->GetAnimInstance();
-        if (AnimInstance && CurrentAttack.AttackMontage)
-        {
-            AnimInstance->Montage_Play(CurrentAttack.AttackMontage);
-            if (CurrentAttack.MontageSection != NAME_None)
-            {
-                AnimInstance->Montage_JumpToSection(CurrentAttack.MontageSection, CurrentAttack.AttackMontage);
-            }
-
-            if (bDebugCombat)
-            {
-                UE_LOG(LogTemp, Log,
-                    TEXT("[CombatCore] Executing %s %s attack using montage: %s"),
-                    *UEnum::GetValueAsString(DesiredDirection),
-                    *UEnum::GetValueAsString(DesiredType),
-                    *CurrentAttack.AttackMontage->GetName());
-            }
-        }
+        return;
     }
-    else if (bDebugCombat)
+
+    ACharacter* CharacterOwner = Cast<ACharacter>(GetOwner());
+    if (!CharacterOwner || !CurrentAttack.HasValidMontage()) { return; }
+
+    // Cache the hitbox component
+    CachedHitboxComp = CharacterOwner->FindComponentByClass<UMCS_CombatHitboxComponent>();
+
+    // Bind to the notify broadcasts for THIS montage
+    BindHitboxNotifiesForMontage(CurrentAttack.AttackMontage);
+
+    UAnimInstance* AnimInstance = CharacterOwner->GetMesh()->GetAnimInstance();
+    if (!AnimInstance) return;
+
+    // Optional: stop any previous montage to avoid overlap
+    AnimInstance->Montage_Stop(0.f);
+
+    // Play montage
+    AnimInstance->Montage_Play(CurrentAttack.AttackMontage);
+    if (CurrentAttack.MontageSection != NAME_None)
     {
-        UE_LOG(LogTemp, Warning,
-            TEXT("[CombatCore] PerformAttack failed — no valid %s attack found for direction %s."),
-            *UEnum::GetValueAsString(DesiredType),
-            *UEnum::GetValueAsString(DesiredDirection));
+        AnimInstance->Montage_JumpToSection(CurrentAttack.MontageSection, CurrentAttack.AttackMontage);
+    }
+
+    if (bDebugCombat)
+    {
+        UE_LOG(LogTemp, Log, TEXT("[CombatCore] Playing montage: %s"), *CurrentAttack.AttackMontage->GetName());
     }
 }
 
@@ -311,4 +315,100 @@ EMCS_AttackDirection UMCS_CombatCoreComponent::GetAttackDirection(const FVector2
 
     // Fallback if between zones
     return EMCS_AttackDirection::Omni;
+}
+
+void UMCS_CombatCoreComponent::BindHitboxNotifiesForMontage(UAnimMontage* Montage)
+{
+    UnbindAllHitboxNotifies();
+    if (!Montage) { return; }
+
+    for (const FAnimNotifyEvent& Event : Montage->Notifies)
+    {
+        if (Event.NotifyStateClass && Event.NotifyStateClass->GetClass()->IsChildOf(UAnimNotifyState_MCSHitboxWindow::StaticClass()))
+        {
+            if (UAnimNotifyState_MCSHitboxWindow* Notify =
+                Cast<UAnimNotifyState_MCSHitboxWindow>(Event.NotifyStateClass))
+            {
+                // Avoid duplicate binds
+                Notify->OnNotifyBegin.RemoveDynamic(this, &UMCS_CombatCoreComponent::HandleHitboxNotifyBegin);
+                Notify->OnNotifyEnd.RemoveDynamic(this, &UMCS_CombatCoreComponent::HandleHitboxNotifyEnd);
+
+                Notify->OnNotifyBegin.AddDynamic(this, &UMCS_CombatCoreComponent::HandleHitboxNotifyBegin);
+                Notify->OnNotifyEnd.AddDynamic(this, &UMCS_CombatCoreComponent::HandleHitboxNotifyEnd);
+
+                BoundHitboxNotifies.Add(Notify);
+            }
+        }
+    }
+
+    if (bDebugCombat)
+    {
+        UE_LOG(LogTemp, Log, TEXT("[CombatCore] Bound to %d hitbox notifies on montage %s"),
+            BoundHitboxNotifies.Num(), *Montage->GetName());
+    }
+}
+
+void UMCS_CombatCoreComponent::UnbindAllHitboxNotifies()
+{
+    if (BoundHitboxNotifies.Num() == 0) { return; }
+
+    for (UAnimNotifyState_MCSHitboxWindow* NotifyCDO : BoundHitboxNotifies)
+    {
+        if (NotifyCDO)
+        {
+            NotifyCDO->OnNotifyBegin.RemoveDynamic(this, &UMCS_CombatCoreComponent::HandleHitboxNotifyBegin);
+            NotifyCDO->OnNotifyEnd.RemoveDynamic(this, &UMCS_CombatCoreComponent::HandleHitboxNotifyEnd);
+        }
+    }
+    BoundHitboxNotifies.Reset();
+}
+
+void UMCS_CombatCoreComponent::HandleHitboxNotifyBegin(FMCS_AttackHitbox& Hitbox)
+{
+    // 🛡️ Guard: only run if this character is actively playing this montage
+    if (const ACharacter* C = Cast<ACharacter>(GetOwner());
+        !(C && C->GetMesh() && C->GetMesh()->GetAnimInstance() &&
+            C->GetMesh()->GetAnimInstance()->Montage_IsPlaying(CurrentAttack.AttackMontage)))
+        return;
+
+    if (!CachedHitboxComp)
+    {
+        if (ACharacter* CharacterOwner = Cast<ACharacter>(GetOwner()))
+        {
+            CachedHitboxComp = CharacterOwner->FindComponentByClass<UMCS_CombatHitboxComponent>();
+        }
+    }
+    if (!CachedHitboxComp) return;
+
+    // ✅ Automatically reset hit tracking whenever a new hitbox window begins
+    CachedHitboxComp->ResetAlreadyHit();
+
+    // Start hit detection for this hitbox
+    CachedHitboxComp->StartHitDetection(CurrentAttack, Hitbox);
+
+    if (bDebugCombat)
+    {
+        UE_LOG(LogTemp, Log, TEXT("[CombatCore] Hitbox BEGIN (Start:%s End:%s R:%.1f)"), *Hitbox.StartSocket.ToString(), *Hitbox.EndSocket.ToString(), Hitbox.Radius);
+    }
+}
+
+void UMCS_CombatCoreComponent::HandleHitboxNotifyEnd(FMCS_AttackHitbox& Hitbox)
+{
+    if (const ACharacter* C = Cast<ACharacter>(GetOwner());
+        !(C && C->GetMesh() && C->GetMesh()->GetAnimInstance() &&
+            C->GetMesh()->GetAnimInstance()->Montage_IsPlaying(CurrentAttack.AttackMontage)))
+    {
+        return;
+    }
+
+    if (CachedHitboxComp)
+    {
+        CachedHitboxComp->StopHitDetection();
+
+        if (bDebugCombat)
+        {
+            UE_LOG(LogTemp, Log, TEXT("[CombatCore] Hitbox END (Label:%s)"),
+                *Hitbox.StartSocket.ToString());
+        }
+    }
 }

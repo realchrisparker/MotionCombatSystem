@@ -20,14 +20,21 @@
 #include "CoreMinimal.h"
 #include "Animation/AnimNotifies/AnimNotifyState.h"
 #include <Structs/MCS_AttackHitbox.h>
-#include "UAnimNotifyState_MCSHitboxWindow.generated.h"
+#include "AnimNotifyState_MCSHitboxWindow.generated.h"
+
+
+ /*
+  * Delegates
+ */
+
+// Delegate called when the notify begins
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnNotifyBegin, FMCS_AttackHitbox&, AttackEntry);
+
+// Delegate called when the notify ends
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOnNotifyEnd, FMCS_AttackHitbox&, AttackEntry);
 
  /**
   * Designer-friendly notify window used to mark when a hitbox should be active.
-  *
-  * NOTE: This notify does *not* activate hit detection by itself. The
-  * UMCS_CombatCoreComponent is responsible for listening for these events
-  * and triggering UMCS_CombatHitboxComponent start/stop calls.
   */
 UCLASS(Blueprintable, ClassGroup=(MotionCombatSystem), meta = (DisplayName = "Motion Combat Hitbox Window"))
 class MOTIONCOMBATSYSTEM_API UAnimNotifyState_MCSHitboxWindow : public UAnimNotifyState
@@ -35,6 +42,10 @@ class MOTIONCOMBATSYSTEM_API UAnimNotifyState_MCSHitboxWindow : public UAnimNoti
     GENERATED_BODY()
 
 public:
+
+    /*
+     * Properties
+     */
 
     /** Hitbox configuration for this notify window (designer-defined). */
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Hitbox")
@@ -48,7 +59,35 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Debug")
     bool bDebugDraw = true;
 
-    // Intentionally empty: handled by core component logic
-    virtual void NotifyBegin(USkeletalMeshComponent*, UAnimSequenceBase*, float) override {}
-    virtual void NotifyEnd(USkeletalMeshComponent*, UAnimSequenceBase*) override {}
+    //--------------
+    // Events
+    //--------------
+
+    // Delegate: called on notify begin
+    UPROPERTY(BlueprintAssignable, Category = "Notify")
+    FOnNotifyBegin OnNotifyBegin;
+
+    // Delegate: called on notify end
+    UPROPERTY(BlueprintAssignable, Category = "Notify")
+    FOnNotifyEnd OnNotifyEnd;
+    
+    /*
+     * Functions
+    */
+    
+    // Begin notification logic
+    virtual void NotifyBegin(
+        USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, float TotalDuration, const FAnimNotifyEventReference& EventReference) override
+    {
+        if (!MeshComp) return;
+        OnNotifyBegin.Broadcast(Hitbox); // Broadcast the begin event
+    }
+
+    // End notification logic
+    virtual void NotifyEnd(
+        USkeletalMeshComponent* MeshComp, UAnimSequenceBase* Animation, const FAnimNotifyEventReference& EventReference) override
+    {
+        if (!MeshComp) return;
+        OnNotifyEnd.Broadcast(Hitbox); // Broadcast the end event
+    }
 };

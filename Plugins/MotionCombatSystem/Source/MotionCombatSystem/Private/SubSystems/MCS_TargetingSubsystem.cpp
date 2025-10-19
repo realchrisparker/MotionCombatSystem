@@ -43,7 +43,10 @@ void UMCS_TargetingSubsystem::Initialize(FSubsystemCollectionBase& Collection)
     CachedWorld = GetWorld();
     if (!IsValid(CachedWorld))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[MCS_TargetingSubsystem] Failed to cache valid world on Initialize."));
+        if (bDebug)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[MCS_TargetingSubsystem] Failed to cache valid world on Initialize."));
+        }
         return;
     }
 
@@ -67,7 +70,10 @@ void UMCS_TargetingSubsystem::Initialize(FSubsystemCollectionBase& Collection)
 
 void UMCS_TargetingSubsystem::Deinitialize()
 {
-    UE_LOG(LogTemp, Log, TEXT("%s UMCS_TargetingSubsystem::Deinitialize"), *MakeWorldTag());
+    if (bDebug)
+    {
+        UE_LOG(LogTemp, Log, TEXT("%s UMCS_TargetingSubsystem::Deinitialize"), *MakeWorldTag());
+    }
     CachedWorld = nullptr;
     Super::Deinitialize();
 }
@@ -101,7 +107,10 @@ void UMCS_TargetingSubsystem::RegisterTarget(AActor* TargetActor)
 {
     if (!TargetActor)
     {
-        UE_LOG(LogTemp, Warning, TEXT("UMCS_TargetingSubsystem::RegisterTarget - Invalid actor."));
+        if (bDebug)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("UMCS_TargetingSubsystem::RegisterTarget - Invalid actor."));
+        }
         return;
     }
 
@@ -117,7 +126,10 @@ void UMCS_TargetingSubsystem::RegisterTarget(AActor* TargetActor)
 
     RegisteredTargets.Add(NewTarget);
 
-    UE_LOG(LogTemp, Warning, TEXT("[MCS_TargetingSubsystem] Registered Target: %s"), *TargetActor->GetName());
+    if (bDebug)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[MCS_TargetingSubsystem] Registered Target: %s"), *TargetActor->GetName());
+    }
 
     // Notify listeners that the target list has been updated
     if (RegisteredTargets.Num() != LastTargetCount)
@@ -142,7 +154,10 @@ void UMCS_TargetingSubsystem::UnregisterTarget(AActor* TargetActor)
 
     if (Removed > 0)
     {
-        UE_LOG(LogTemp, Warning, TEXT("[MCS_TargetingSubsystem] Unregistered Target: %s"), *TargetActor->GetName());
+        if (bDebug)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[MCS_TargetingSubsystem] Unregistered Target: %s"), *TargetActor->GetName());
+        }
     }
 
     // Notify listeners if any were removed
@@ -195,7 +210,7 @@ void UMCS_TargetingSubsystem::ScanForTargets()
         QueryParams);
 
     // Visualization for debugging if enabled
-    if (bDebugDrawTargeting)
+    if (bDebug)
     {
         DrawDebugSphere(World, PlayerLocation, ScanRadius, 16, FColor::Red, false, 0.25f);
     }
@@ -252,11 +267,20 @@ void UMCS_TargetingSubsystem::ScanForTargets()
             NewTarget.bIsValid = true;
             RegisteredTargets.Add(NewTarget);
 
-            UE_LOG(LogTemp, Warning, TEXT("[MCS_TargetingSubsystem] Added Target: %s"), *Actor->GetName());
+            if (bDebug)
+            {
+                UE_LOG(LogTemp, Warning, TEXT("[MCS_TargetingSubsystem] Added Target: %s"), *Actor->GetName());
+            }
         }
     }
 
-    UE_LOG(LogTemp, Warning, TEXT("[MCS_TargetingSubsystem] Scanned %d valid targets within %.0f units."), RegisteredTargets.Num(), ScanRadius);
+    if (bDebug)
+    {
+        if (bDebug)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[MCS_TargetingSubsystem] Scanned %d valid targets within %.0f units."), RegisteredTargets.Num(), ScanRadius);
+        }
+    }
 
     // Notify listeners that the target list has been updated
     if (RegisteredTargets.Num() != LastTargetCount)
@@ -309,7 +333,10 @@ void UMCS_TargetingSubsystem::SetTargetScanningEnabled(bool bEnable)
 {
     if (!IsValid(CachedWorld))
     {
-        UE_LOG(LogTemp, Warning, TEXT("[MCS_TargetingSubsystem] Cannot toggle scanning — no valid world."));
+        if (bDebug)
+        {
+            UE_LOG(LogTemp, Warning, TEXT("[MCS_TargetingSubsystem] Cannot toggle scanning — no valid world."));
+        }
         return;
     }
 
@@ -340,6 +367,9 @@ void UMCS_TargetingSubsystem::SetTargetScanningEnabled(bool bEnable)
         // Stop scanning and clear targets (optional)
         TimerMgr.ClearTimer(ScanTimerHandle);
 
-        UE_LOG(LogTemp, Log, TEXT("[MCS_TargetingSubsystem] Target scanning DISABLED."));
+        if (bDebug)
+        {
+            UE_LOG(LogTemp, Log, TEXT("[MCS_TargetingSubsystem] Target scanning DISABLED."));
+        }
     }
 }

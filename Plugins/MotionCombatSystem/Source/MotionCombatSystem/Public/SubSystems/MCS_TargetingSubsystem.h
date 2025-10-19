@@ -123,7 +123,7 @@ protected:
 
 	/** Whether to draw debug visuals for targeting */
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Targeting|Debug")
-	bool bDebugDrawTargeting = false;
+	bool bDebug = false;
 
 	/*
 	 * Functions
