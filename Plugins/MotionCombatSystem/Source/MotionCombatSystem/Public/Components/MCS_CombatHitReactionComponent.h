@@ -21,6 +21,7 @@
 
 #include "CoreMinimal.h"
 #include "Components/ActorComponent.h"
+#include <Structs/MCS_HitReaction.h>
 #include "MCS_CombatHitReactionComponent.generated.h"
 
 UCLASS(Blueprintable, ClassGroup = (MotionCombatSystem), meta = (BlueprintSpawnableComponent, DisplayName = "Motion Combat Hit Reaction Component"))
@@ -32,7 +33,48 @@ public:
     // Constructor
     UMCS_CombatHitReactionComponent();
 
+    /*
+    * Functions
+    */
+
+    /**
+     * Performs a hit reaction based on the specified hit direction.
+     * @param HitDirection The direction of the hit (e.g., "Hit.Back", "Hit.Forward", etc.).
+     * @param PlayRate The play rate for the hit reaction montage.
+    */
+    UFUNCTION(BlueprintCallable, Category = "Hit Reaction")
+    void PerformHitReaction(EMCS_Direction Direction, EPGAS_HitSeverity Severity);
+
+    /*
+    * Properties
+    */
+
+    /** DataTable containing FPGAS_HitReaction definitions */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Core", meta = (DisplayName = "Hit Reaction Data Table"))
+    TObjectPtr<UDataTable> HitReactionDataTable;
+
+    // /** All available hit reactions (configured in editor) */
+    // UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "Hit Reaction", meta = (DisplayName = "Hit Reactions"))
+    // TArray<FPGAS_HitReaction> HitReactions;
+
 protected:
     // Called when the game starts
     virtual void BeginPlay() override;
+
+private:
+
+    /*
+    * Functions
+    */
+
+    /** Helper: Plays a montage on the owning actor's mesh if valid */
+    void PlayMontageInternal(UAnimMontage* Montage, float InPlayRate = 1.0f);
+
+    /**
+     * Finds the best matching reaction based on direction and severity.
+     * @param Direction The hit direction.
+     * @param Severity The hit severity.
+     * @return The best matching hit reaction, or nullptr if none found.
+     */
+    const FMCS_HitReaction* FindReaction(EMCS_Direction Direction, EPGAS_HitSeverity Severity) const;
 };

@@ -27,10 +27,18 @@ UMCS_AttackChooser::UMCS_AttackChooser()
 }
 
 /* ==========================================================
- * Attack Selection
+ * Attack Selection & Scoring Implementations
  * ========================================================== */
+
+ /*
+ * Attack Selection
+ */
 bool UMCS_AttackChooser::ChooseAttack(
-    AActor* Instigator, const TArray<AActor*>& Targets, EMCS_AttackDirection DesiredDirection, FMCS_AttackEntry& OutAttack) const
+    AActor* Instigator,
+    const TArray<AActor*>& Targets,
+    EMCS_AttackDirection DesiredDirection,
+    const FMCS_AttackSituation& CurrentSituation,
+    FMCS_AttackEntry& OutAttack) const
 {
     if (AttackEntries.IsEmpty())
     {
@@ -47,7 +55,8 @@ bool UMCS_AttackChooser::ChooseAttack(
         if (!IsEntryAllowedByBasicFilters(Entry, Instigator, Targets))
             continue;
 
-        const float Score = ScoreAttack(Entry, Instigator, Targets, DesiredDirection);
+        // Pass CurrentSituation into the scoring function
+        const float Score = ScoreAttack(Entry, Instigator, Targets, DesiredDirection, CurrentSituation);
         if (!FMath::IsFinite(Score))
             continue;
 
@@ -73,19 +82,26 @@ bool UMCS_AttackChooser::ChooseAttack(
     return true;
 }
 
-/* ==========================================================
+
+/*
  * Core Scoring Logic
- * ========================================================== */
+ */
 float UMCS_AttackChooser::ScoreAttack_Implementation(
-    const FMCS_AttackEntry& Entry, AActor* Instigator, const TArray<AActor*>& Targets, EMCS_AttackDirection DesiredDirection) const
+    const FMCS_AttackEntry& Entry,
+    AActor* Instigator,
+    const TArray<AActor*>& Targets,
+    EMCS_AttackDirection DesiredDirection,
+    const FMCS_AttackSituation& CurrentSituation) const
 {
     const float BaseScore = Entry.SelectionWeight;
     const float TagScore = ComputeTagScore(Entry);
     const float DistanceScore = ComputeDistanceScore(Entry, Instigator, Targets);
     const float DirectionScore = ComputeDirectionalScore(Entry, DesiredDirection);
+    const float SituationScoreValue = ComputeSituationScore(Entry, CurrentSituation);
 
-    return AggregateScore(BaseScore, TagScore, DistanceScore, DirectionScore);
+    return AggregateScore(BaseScore, TagScore, DistanceScore, DirectionScore, SituationScoreValue);
 }
+
 
 /* ==========================================================
  * BlueprintPure Helper Implementations
@@ -185,6 +201,56 @@ float UMCS_AttackChooser::ComputeDirectionalScore(const FMCS_AttackEntry& Entry,
     return 0.f;
 }
 
+float UMCS_AttackChooser::ComputeSituationScore(const FMCS_AttackEntry& Entry, const FMCS_AttackSituation& CurrentSituation) const
+{
+    float Score = 0.f;
+
+    switch (Entry.AttackSituation)
+    {
+        case EMCS_AttackSituations::Grounded:
+            if (CurrentSituation.bIsGrounded) Score += 10.f;
+            else if (CurrentSituation.bIsInAir) Score -= 10.f;
+            break;
+
+        case EMCS_AttackSituations::Airborne:
+            if (CurrentSituation.bIsInAir) Score += 15.f;
+            else Score -= 10.f;
+            break;
+
+        case EMCS_AttackSituations::Running:
+            if (CurrentSituation.bIsRunning) Score += 10.f;
+            break;
+
+        case EMCS_AttackSituations::Crouching:
+            if (CurrentSituation.bIsCrouching) Score += 10.f;
+            break;
+
+        case EMCS_AttackSituations::Counter:
+            if (CurrentSituation.bIsCountering) Score += 20.f;
+            break;
+
+        case EMCS_AttackSituations::Parry:
+            if (CurrentSituation.bIsParrying) Score += 25.f;
+            break;
+
+        case EMCS_AttackSituations::Riposte:
+            if (CurrentSituation.bIsRiposting) Score += 30.f;
+            break;
+
+        case EMCS_AttackSituations::Finisher:
+            if (CurrentSituation.bIsFinishing) Score += 25.f;
+            break;
+
+        case EMCS_AttackSituations::Any:
+        default:
+            Score += 5.f; // always somewhat valid
+            break;
+    }
+
+    return Score;
+}
+
+
 /**
  * Aggregates individual score components into a final score.
  * Designers can override this in Blueprint to weight components differently.
@@ -193,10 +259,9 @@ float UMCS_AttackChooser::ComputeDirectionalScore(const FMCS_AttackEntry& Entry,
  * @param DistanceScore The score modifier from distance evaluation.
  * @param DirectionScore The score modifier from directional matching.
  */
-float UMCS_AttackChooser::AggregateScore(float BaseScore, float TagScore, float DistanceScore, float DirectionScore) const
+float UMCS_AttackChooser::AggregateScore(float BaseScore, float TagScore, float DistanceScore, float DirectionScore, float SituationScore) const
 {
-    // Designers can override this in Blueprint to weight components differently.
-    return BaseScore + TagScore + DistanceScore + DirectionScore;
+    return BaseScore + TagScore + DistanceScore + DirectionScore + SituationScore;
 }
 
 /* ==========================================================

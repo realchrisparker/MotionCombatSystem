@@ -45,14 +45,18 @@ void UMCS_CombatCoreComponent::BeginPlay()
         TargetingSubsystem = World->GetSubsystem<UMCS_TargetingSubsystem>();
     }
 
-    // Ensure chooser exists
-    if (!AttackChooser)
-    {
-        AttackChooser = NewObject<UMCS_AttackChooser>(this, UMCS_AttackChooser::StaticClass());
-    }
+    // // Ensure chooser exists
+    // if (!AttackChooser)
+    // {
+    //     AttackChooser = NewObject<UMCS_AttackChooser>(this, UMCS_AttackChooser::StaticClass());
+    // }
 
-    // Load attacks from DataTable if assigned
-    LoadAttacksFromDataTable();
+    // If no active set defined but map has entries, activate the first
+    if (!ActiveAttackSetTag.IsValid() && AttackSets.Num() > 0)
+    {
+        const FGameplayTag FirstKey = AttackSets.CreateConstIterator()->Key;
+        SetActiveAttackSet(FirstKey);
+    }
 
     // Bind to targeting updates
     if (TargetingSubsystem)
@@ -62,52 +66,27 @@ void UMCS_CombatCoreComponent::BeginPlay()
 
 }
 
-// Loads all FMCS_AttackEntry rows from the DataTable into the AttackChooser
-void UMCS_CombatCoreComponent::LoadAttacksFromDataTable()
-{
-    if (!AttackDataTable)
-    {
-        if (bDebugCombat)
-            UE_LOG(LogTemp, Warning, TEXT("[CombatCore] No AttackDataTable assigned."));
-        return;
-    }
-
-    TArray<FMCS_AttackEntry*> RowPtrs;
-    AttackDataTable->GetAllRows(TEXT("LoadAttacksFromDataTable"), RowPtrs);
-
-    if (AttackChooser)
-    {
-        AttackChooser->AttackEntries.Reset();
-        for (const FMCS_AttackEntry* Row : RowPtrs)
-        {
-            if (Row)
-                AttackChooser->AttackEntries.Add(*Row);
-        }
-
-        if (bDebugCombat)
-            UE_LOG(LogTemp, Warning, TEXT("[CombatCore] Loaded %d attacks from DataTable."), AttackChooser->AttackEntries.Num());
-    }
-}
-
 /*
  * Chooses an appropriate attack using AttackChooser and available targets
  * @param DesiredType - type of attack to select
  * @param DesiredDirection - direction of the attack in world space
 */
-bool UMCS_CombatCoreComponent::SelectAttack(EMCS_AttackType DesiredType, EMCS_AttackDirection DesiredDirection)
+bool UMCS_CombatCoreComponent::SelectAttack(EMCS_AttackType DesiredType, EMCS_AttackDirection DesiredDirection, const FMCS_AttackSituation& CurrentSituation)
 {
-    if (!AttackChooser)
-        return false;
-
-    AActor* OwnerActor = GetOwnerActor();
-    if (!OwnerActor)
+    const FMCS_AttackSetData* ActiveSet = AttackSets.Find(ActiveAttackSetTag);
+    if (!ActiveSet || !ActiveSet->AttackChooser)
     {
+        UE_LOG(LogTemp, Error, TEXT("[CombatCore] No valid attack set or chooser for active tag: %s"), *ActiveAttackSetTag.ToString());
         return false;
     }
 
-    // Filter attacks by requested type
+    UMCS_AttackChooser* Chooser = ActiveSet->AttackChooser;
+    AActor* OwnerActor = GetOwnerActor();
+    if (!OwnerActor) return false;
+
+    // Filter by type
     TArray<FMCS_AttackEntry> FilteredEntries;
-    for (const FMCS_AttackEntry& Entry : AttackChooser->AttackEntries)
+    for (const FMCS_AttackEntry& Entry : Chooser->AttackEntries)
     {
         if (Entry.AttackType == DesiredType)
         {
@@ -117,43 +96,40 @@ bool UMCS_CombatCoreComponent::SelectAttack(EMCS_AttackType DesiredType, EMCS_At
 
     if (FilteredEntries.IsEmpty())
     {
-        if (bDebugCombat)
+        if (bDebug)
         {
-            UE_LOG(LogTemp, Warning, TEXT("[CombatCore] No attacks found of type: %s"), *UEnum::GetValueAsString(DesiredType));
+            UE_LOG(LogTemp, Warning, TEXT("[CombatCore] No attacks found of type %s for set %s."), *UEnum::GetValueAsString(DesiredType), *ActiveAttackSetTag.ToString());
         }
         return false;
     }
 
-    // Gather valid targets from the subsystem
+    // Gather targets
     TArray<AActor*> Targets;
     if (TargetingSubsystem)
     {
         for (const FMCS_TargetInfo& Info : TargetingSubsystem->GetAllTargets())
-        {
             if (IsValid(Info.TargetActor))
-            {
                 Targets.Add(Info.TargetActor);
-            }
-        }
     }
 
-    // Use the filtered list temporarily
     FMCS_AttackEntry ChosenAttack;
-    const TArray<FMCS_AttackEntry> OriginalEntries = AttackChooser->AttackEntries;
-    AttackChooser->AttackEntries = FilteredEntries;
+    const TArray<FMCS_AttackEntry> OriginalEntries = Chooser->AttackEntries;
+    Chooser->AttackEntries = FilteredEntries;
 
-    const bool bSuccess = AttackChooser->ChooseAttack(OwnerActor, Targets, DesiredDirection, ChosenAttack);
-
-    // Restore full list
-    AttackChooser->AttackEntries = OriginalEntries;
+    const bool bSuccess = Chooser->ChooseAttack(OwnerActor, Targets, DesiredDirection, CurrentSituation, ChosenAttack);
+    Chooser->AttackEntries = OriginalEntries;
 
     if (bSuccess)
     {
         CurrentAttack = ChosenAttack;
 
-        if (bDebugCombat)
+        if (bDebug)
         {
-            UE_LOG(LogTemp, Log, TEXT("[CombatCore] Selected %s attack: %s (Direction: %s)"), *UEnum::GetValueAsString(DesiredType), *CurrentAttack.AttackName.ToString(), *UEnum::GetValueAsString(CurrentAttack.AttackDirection));
+            UE_LOG(LogTemp, Log, TEXT("[CombatCore] Selected %s attack: %s (Dir: %s, Set: %s)"),
+                *UEnum::GetValueAsString(DesiredType),
+                *CurrentAttack.AttackName.ToString(),
+                *UEnum::GetValueAsString(CurrentAttack.AttackDirection),
+                *ActiveAttackSetTag.ToString());
         }
     }
 
@@ -165,41 +141,34 @@ bool UMCS_CombatCoreComponent::SelectAttack(EMCS_AttackType DesiredType, EMCS_At
  * @param DesiredType - type of attack to perform
  * @param DesiredDirection - direction of the attack in world space
 */
-void UMCS_CombatCoreComponent::PerformAttack(EMCS_AttackType DesiredType, EMCS_AttackDirection DesiredDirection)
+void UMCS_CombatCoreComponent::PerformAttack(EMCS_AttackType DesiredType, EMCS_AttackDirection DesiredDirection, const FMCS_AttackSituation& CurrentSituation)
 {
-    if (!SelectAttack(DesiredType, DesiredDirection))
+    if (!SelectAttack(DesiredType, DesiredDirection, CurrentSituation))
     {
-        if (bDebugCombat)
+        if (bDebug)
         {
-            UE_LOG(LogTemp, Warning, TEXT("[CombatCore] PerformAttack failed — no valid %s attack for %s."),
-                *UEnum::GetValueAsString(DesiredType), *UEnum::GetValueAsString(DesiredDirection));
+            UE_LOG(LogTemp, Warning, TEXT("[CombatCore] PerformAttack failed — no valid attack found."));
         }
         return;
     }
 
     ACharacter* CharacterOwner = Cast<ACharacter>(GetOwner());
-    if (!CharacterOwner || !CurrentAttack.HasValidMontage()) { return; }
+    if (!CharacterOwner || !CurrentAttack.HasValidMontage()) return;
 
-    // Cache the hitbox component
     CachedHitboxComp = CharacterOwner->FindComponentByClass<UMCS_CombatHitboxComponent>();
-
-    // Bind to the notify broadcasts for THIS montage
     BindHitboxNotifiesForMontage(CurrentAttack.AttackMontage);
 
     UAnimInstance* AnimInstance = CharacterOwner->GetMesh()->GetAnimInstance();
     if (!AnimInstance) return;
 
-    // Optional: stop any previous montage to avoid overlap
     AnimInstance->Montage_Stop(0.f);
-
-    // Play montage
     AnimInstance->Montage_Play(CurrentAttack.AttackMontage);
     if (CurrentAttack.MontageSection != NAME_None)
     {
         AnimInstance->Montage_JumpToSection(CurrentAttack.MontageSection, CurrentAttack.AttackMontage);
     }
 
-    if (bDebugCombat)
+    if (bDebug)
     {
         UE_LOG(LogTemp, Log, TEXT("[CombatCore] Playing montage: %s"), *CurrentAttack.AttackMontage->GetName());
     }
@@ -232,7 +201,7 @@ AActor* UMCS_CombatCoreComponent::GetOwnerActor() const
 // Handler for TargetingSubsystem target updates
 void UMCS_CombatCoreComponent::HandleTargetsUpdated(const TArray<FMCS_TargetInfo>& NewTargets, int32 NewTargetCount)
 {
-    if (bDebugCombat)
+    if (bDebug)
     {
         UE_LOG(LogTemp, Log, TEXT("[CombatCore] Target list changed: %d targets in range."), NewTargetCount);
     }
@@ -341,7 +310,7 @@ void UMCS_CombatCoreComponent::BindHitboxNotifiesForMontage(UAnimMontage* Montag
         }
     }
 
-    if (bDebugCombat)
+    if (bDebug)
     {
         UE_LOG(LogTemp, Log, TEXT("[CombatCore] Bound to %d hitbox notifies on montage %s"),
             BoundHitboxNotifies.Num(), *Montage->GetName());
@@ -386,7 +355,7 @@ void UMCS_CombatCoreComponent::HandleHitboxNotifyBegin(FMCS_AttackHitbox& Hitbox
     // Start hit detection for this hitbox
     CachedHitboxComp->StartHitDetection(CurrentAttack, Hitbox);
 
-    if (bDebugCombat)
+    if (bDebug)
     {
         UE_LOG(LogTemp, Log, TEXT("[CombatCore] Hitbox BEGIN (Start:%s End:%s R:%.1f)"), *Hitbox.StartSocket.ToString(), *Hitbox.EndSocket.ToString(), Hitbox.Radius);
     }
@@ -405,10 +374,61 @@ void UMCS_CombatCoreComponent::HandleHitboxNotifyEnd(FMCS_AttackHitbox& Hitbox)
     {
         CachedHitboxComp->StopHitDetection();
 
-        if (bDebugCombat)
+        if (bDebug)
         {
             UE_LOG(LogTemp, Log, TEXT("[CombatCore] Hitbox END (Label:%s)"),
                 *Hitbox.StartSocket.ToString());
         }
     }
+}
+
+/**
+ * Sets the active attack DataTable using a gameplay tag.
+ */
+bool UMCS_CombatCoreComponent::SetActiveAttackSet(const FGameplayTag& NewAttackSetTag)
+{
+    const FMCS_AttackSetData* FoundSet = AttackSets.Find(NewAttackSetTag);
+    if (!FoundSet)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[CombatCore] Unknown attack set tag: %s"), *NewAttackSetTag.ToString());
+        return false;
+    }
+
+    if (!FoundSet->AttackDataTable || !FoundSet->AttackChooser)
+    {
+        UE_LOG(LogTemp, Error, TEXT("[CombatCore] Attack set '%s' missing required DataTable or Chooser!"), *NewAttackSetTag.ToString());
+        return false;
+    }
+
+    ActiveAttackSetTag = NewAttackSetTag;
+    AttackDataTable = FoundSet->AttackDataTable;
+
+    // Load data into that set’s Chooser
+    TArray<FMCS_AttackEntry*> Rows;
+    AttackDataTable->GetAllRows(TEXT("LoadFromSet"), Rows);
+
+    FoundSet->AttackChooser->AttackEntries.Reset();
+    for (FMCS_AttackEntry* Row : Rows)
+        if (Row)
+            FoundSet->AttackChooser->AttackEntries.Add(*Row);
+
+    if (bDebug)
+        UE_LOG(LogTemp, Log, TEXT("[CombatCore] Activated set: %s (%d attacks) Chooser: %s"),
+            *NewAttackSetTag.ToString(),
+            FoundSet->AttackChooser->AttackEntries.Num(),
+            *FoundSet->AttackChooser->GetName());
+
+    return true;
+}
+
+/**
+ * Gets the currently active attack DataTable.
+ */
+UDataTable* UMCS_CombatCoreComponent::GetActiveAttackTable() const
+{
+    if (const FMCS_AttackSetData* Found = AttackSets.Find(ActiveAttackSetTag))
+    {
+        return Found->AttackDataTable;
+    }
+    return nullptr;
 }

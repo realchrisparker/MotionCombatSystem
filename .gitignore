@@ -147,3 +147,4 @@ __pycache__/
 
 # Ignore specific folders or files (customize as needed) (Many are paid assets and can't be shared)
 *Content/Fighter_Animations/
+*Content/Player/Animations/

@@ -25,6 +25,7 @@
 #include "GameplayTagContainer.h"
 #include <Enums/EMCS_AttackTypes.h>
 #include <Enums/EMCS_AttackDirections.h>
+#include <Enums/EMCS_AttackSituations.h>
 #include <Structs/MCS_AttackHitbox.h>
 #include "MCS_AttackEntry.generated.h"
 
@@ -74,6 +75,9 @@ public:
 	// Category/type used by chooser to group/select attacks
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack", meta = (DisplayName = "Attack Type"))
 	EMCS_AttackType AttackType = EMCS_AttackType::Unknown;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack", meta = (DisplayName = "Situation"))
+	EMCS_AttackSituations AttackSituation = EMCS_AttackSituations::Grounded;
 
 	// Direction this attack is intended to be used from
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack", meta = (DisplayName = "Direction"))
