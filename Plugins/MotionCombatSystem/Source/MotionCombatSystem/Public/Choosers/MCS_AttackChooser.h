@@ -25,6 +25,7 @@
 #include "Engine/DataTable.h"
 #include <Structs/MCS_AttackEntry.h>
 #include <Structs/MCS_AttackSituation.h>
+#include <Structs/MCS_DebugInfo.h>
 #include <Enums/EMCS_AttackDirections.h>
 #include <Enums/EMCS_AttackSituations.h>
 #include "GameplayTagContainer.h"
@@ -76,6 +77,17 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|AttackChooser")
     bool bPreferTagInsteadOfFilter = false;
 
+#if WITH_EDITORONLY_DATA || UE_BUILD_DEVELOPMENT
+    
+    /** Debugging information for attack scoring. */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MCS|Debug")
+    mutable TArray<FMCS_DebugAttackScore> DebugScores; // mutable to allow modification in const functions
+
+    /** Clears stored debug info. Called at start of each ChooseAttack cycle. */
+    void ClearDebugScores() const;
+
+#endif
+
     /* ==========================================================
      * Public API
      * ========================================================== */
@@ -110,12 +122,13 @@ public:
     float ComputeDirectionalScore(const FMCS_AttackEntry& Entry, EMCS_AttackDirection DesiredDirection) const;
 
     /** Computes a score modifier based on the current combat situation. */
-    UFUNCTION(BlueprintPure, Category = "MCS|Chooser|Scoring")
+    UFUNCTION(BlueprintPure, Category = "MCS|AttackChooser|Scoring")
     float ComputeSituationScore(const FMCS_AttackEntry& Entry, const FMCS_AttackSituation& CurrentSituation) const;
 
     /** Combines individual score components into a final result. */
     UFUNCTION(BlueprintPure, Category = "MCS|AttackChooser|Scoring", meta = (DisplayName = "Aggregate Score", ReturnDisplayName = "Score"))
     float AggregateScore(float BaseScore, float TagScore, float DistanceScore, float DirectionScore, float SituationScore) const;
+
 
 protected:
     /* ==========================================================
@@ -139,4 +152,7 @@ protected:
 
     /** Is entry allowed by basic filters (distance & angle). */
     bool IsEntryAllowedByBasicFilters(const FMCS_AttackEntry& Entry, AActor* Instigator, const TArray<AActor*>& Targets) const;
+
+    /** Queries a specific attribute value from the current situation. */
+    float QueryAttributeValue(FName Attribute, const FMCS_AttackSituation& Situation) const;
 };

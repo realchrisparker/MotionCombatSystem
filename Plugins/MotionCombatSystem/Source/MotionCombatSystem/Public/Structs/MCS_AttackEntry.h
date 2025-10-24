@@ -27,6 +27,7 @@
 #include <Enums/EMCS_AttackDirections.h>
 #include <Enums/EMCS_AttackSituations.h>
 #include <Structs/MCS_AttackHitbox.h>
+#include <Structs/MCS_AttackCondition.h>
 #include "MCS_AttackEntry.generated.h"
 
 
@@ -82,6 +83,10 @@ public:
 	// Direction this attack is intended to be used from
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack", meta = (DisplayName = "Direction"))
 	EMCS_AttackDirection AttackDirection = EMCS_AttackDirection::Forward;
+
+	// Optional list of numeric conditions (e.g., Speed > 600)
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack|Condition")
+	TArray<FMCS_AttackCondition> ConditionalChecks;
 
 	/* ---------------------------
 	 * Animation / Montage

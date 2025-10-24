@@ -123,14 +123,14 @@ float ScoreAttack_Implementation(const FMCS_AttackEntry& Entry, AActor* Instigat
 **Example Flow:**
 ```
 // In your PlayerController input binding
-MCSCoreComponent->SelectAttack();
-MCSCoreComponent->ExecuteAttack();
+MCSCoreComponent->PerformAttack(); // Selects and execute attack.
 ```
 
-**Debug Logging Example:**
+# Debug Overlay
+MCS provides a built in debug overlay that can be turned on and off using command line [mcs.DebugOverlay]. Default is off.
 ```
-[CombatCore] Selected attack: HeavySlash (Damage=50.0, Range=400)
-[CombatCore] Playing montage: M_Attack_HeavySlash
+[mcs.DebugOverlay 0] Turn off debug overlay
+[mcs.DebugOverlay 1] Turn on debug overlay
 ```
 
 # 🧩 Setup

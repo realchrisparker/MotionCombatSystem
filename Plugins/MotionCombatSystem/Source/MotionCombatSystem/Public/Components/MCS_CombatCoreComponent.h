@@ -62,9 +62,13 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Core", meta = (DisplayName = "Attack Sets"))
     TMap<FGameplayTag, FMCS_AttackSetData> AttackSets;
 
-    /** Debug toggle */
-    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Core", meta = (DisplayName = "Debug"))
-    bool bDebug = true;
+    // /**
+    //  * Enables debug logging and visual overlay output for the Motion Combat System.
+    //  * When true, the system will display attack selection scores and debug information
+    //  * in the viewport (if available) and log detailed info to the console.
+    //  */
+    // UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Core|Debug", meta = (DisplayName = "Enable Debug Visualization"))
+    // bool bDebug = false;
 
     /** Blueprint Event triggered whenever the TargetingSubsystem's target list is updated */
     UPROPERTY(BlueprintAssignable, Category = "MCS|Events", meta = (DisplayName = "On Targeting Updated"))
@@ -124,6 +128,13 @@ public:
     UFUNCTION(BlueprintPure, Category = "MCS|Core", meta = (DisplayName = "Get Current Attack"))
     FMCS_AttackEntry GetCurrentAttack() const { return CurrentAttack; }
 
+#if WITH_EDITORONLY_DATA
+    /**
+     * Draws the Motion Combat System debug overlay.
+     * Call from your PlayerController::DrawHUD() or custom AHUD::DrawHUD().
+     */
+    void DrawDebugOverlay(FCanvas* Canvas, float& Y) const;
+#endif
 
 protected:
     virtual void BeginPlay() override;

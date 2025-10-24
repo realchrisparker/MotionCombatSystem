@@ -46,6 +46,10 @@ bool UMCS_AttackChooser::ChooseAttack(
         return false;
     }
 
+#if WITH_EDITORONLY_DATA || UE_BUILD_DEVELOPMENT
+    ClearDebugScores();
+#endif
+
     float BestScore = -TNumericLimits<float>::Max();
     TArray<int32> BestIndices;
 
@@ -59,6 +63,20 @@ bool UMCS_AttackChooser::ChooseAttack(
         const float Score = ScoreAttack(Entry, Instigator, Targets, DesiredDirection, CurrentSituation);
         if (!FMath::IsFinite(Score))
             continue;
+
+#if WITH_EDITORONLY_DATA || UE_BUILD_DEVELOPMENT
+        FMCS_DebugAttackScore DebugEntry;
+        DebugEntry.AttackName = Entry.AttackName;
+        DebugEntry.BaseScore = Entry.SelectionWeight;
+        DebugEntry.TagScore = ComputeTagScore(Entry);
+        DebugEntry.DistanceScore = ComputeDistanceScore(Entry, Instigator, Targets);
+        DebugEntry.DirectionScore = ComputeDirectionalScore(Entry, DesiredDirection);
+        DebugEntry.SituationScore = ComputeSituationScore(Entry, CurrentSituation);
+        DebugEntry.TotalScore = DebugEntry.BaseScore + DebugEntry.TagScore + DebugEntry.DistanceScore + DebugEntry.DirectionScore + DebugEntry.SituationScore;
+        DebugEntry.Notes = FString::Printf(TEXT("Tag:%+.1f Dist:%+.1f Dir:%+.1f Sit:%+.1f"),
+            DebugEntry.TagScore, DebugEntry.DistanceScore, DebugEntry.DirectionScore, DebugEntry.SituationScore);
+        DebugScores.Add(DebugEntry);
+#endif
 
         if (Score > BestScore)
         {
@@ -77,6 +95,14 @@ bool UMCS_AttackChooser::ChooseAttack(
     int32 ChosenIndex = BestIndices[0];
     if (BestIndices.Num() > 1 && bRandomTieBreak)
         ChosenIndex = BestIndices[FMath::RandRange(0, BestIndices.Num() - 1)];
+
+#if WITH_EDITORONLY_DATA || UE_BUILD_DEVELOPMENT
+    // Mark the winning entry
+    for (FMCS_DebugAttackScore& Info : DebugScores)
+    {
+        Info.bWasChosen = (Info.AttackName == AttackEntries[ChosenIndex].AttackName);
+    }
+#endif
 
     OutAttack = AttackEntries[ChosenIndex];
     return true;
@@ -247,9 +273,30 @@ float UMCS_AttackChooser::ComputeSituationScore(const FMCS_AttackEntry& Entry, c
             break;
     }
 
+    // ----------------------------------------------------------
+    // Extended quantitative condition checks (designer-defined)
+    // ----------------------------------------------------------
+    for (const FMCS_AttackCondition& Condition : Entry.ConditionalChecks)
+    {
+        const float CurrentValue = QueryAttributeValue(Condition.AttributeName, CurrentSituation);
+
+        bool bPass = false;
+        switch (Condition.Comparison)
+        {
+            case EMCS_ComparisonMethod::Equal:          bPass = FMath::IsNearlyEqual(CurrentValue, Condition.Threshold, 0.01f); break;
+            case EMCS_ComparisonMethod::NotEqual:       bPass = !FMath::IsNearlyEqual(CurrentValue, Condition.Threshold, 0.01f); break;
+            case EMCS_ComparisonMethod::Greater:        bPass = CurrentValue > Condition.Threshold; break;
+            case EMCS_ComparisonMethod::Less:           bPass = CurrentValue < Condition.Threshold; break;
+            case EMCS_ComparisonMethod::GreaterOrEqual: bPass = CurrentValue >= Condition.Threshold; break;
+            case EMCS_ComparisonMethod::LessOrEqual:    bPass = CurrentValue <= Condition.Threshold; break;
+        }
+
+        if (bPass)
+            Score += Condition.Weight;
+    }
+
     return Score;
 }
-
 
 /**
  * Aggregates individual score components into a final score.
@@ -306,3 +353,24 @@ bool UMCS_AttackChooser::IsEntryAllowedByBasicFilters(const FMCS_AttackEntry& En
 
     return false;
 }
+
+/**
+ * Queries numeric attributes from the current situation context.
+ * Extend this function to expose new values (e.g., Stamina, Altitude, etc.)
+ */
+float UMCS_AttackChooser::QueryAttributeValue(FName Attribute, const FMCS_AttackSituation& Situation) const
+{
+    if (Attribute == "Speed")     return Situation.Speed;
+    if (Attribute == "Altitude")  return Situation.Altitude;
+    if (Attribute == "Stamina")   return Situation.Stamina;
+    if (Attribute == "Health")    return Situation.HealthPercent;
+    // Extend as needed
+    return 0.f;
+}
+
+#if WITH_EDITOR || UE_BUILD_DEVELOPMENT
+void UMCS_AttackChooser::ClearDebugScores() const
+{
+    DebugScores.Reset();
+}
+#endif

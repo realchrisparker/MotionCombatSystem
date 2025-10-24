@@ -21,6 +21,11 @@
 #include "Animation/AnimInstance.h" 
 #include "GameFramework/Character.h"
 
+#if WITH_EDITORONLY_DATA
+#include "Engine/Canvas.h"
+#include "Engine/Font.h"
+#include "Engine/Engine.h"
+#endif
 
  // Constructor
 UMCS_CombatCoreComponent::UMCS_CombatCoreComponent()
@@ -96,10 +101,7 @@ bool UMCS_CombatCoreComponent::SelectAttack(EMCS_AttackType DesiredType, EMCS_At
 
     if (FilteredEntries.IsEmpty())
     {
-        if (bDebug)
-        {
-            UE_LOG(LogTemp, Warning, TEXT("[CombatCore] No attacks found of type %s for set %s."), *UEnum::GetValueAsString(DesiredType), *ActiveAttackSetTag.ToString());
-        }
+        UE_LOG(LogTemp, Warning, TEXT("[CombatCore] No attacks found of type %s for set %s."), *UEnum::GetValueAsString(DesiredType), *ActiveAttackSetTag.ToString());
         return false;
     }
 
@@ -123,14 +125,11 @@ bool UMCS_CombatCoreComponent::SelectAttack(EMCS_AttackType DesiredType, EMCS_At
     {
         CurrentAttack = ChosenAttack;
 
-        if (bDebug)
-        {
-            UE_LOG(LogTemp, Log, TEXT("[CombatCore] Selected %s attack: %s (Dir: %s, Set: %s)"),
-                *UEnum::GetValueAsString(DesiredType),
-                *CurrentAttack.AttackName.ToString(),
-                *UEnum::GetValueAsString(CurrentAttack.AttackDirection),
-                *ActiveAttackSetTag.ToString());
-        }
+        UE_LOG(LogTemp, Log, TEXT("[CombatCore] Selected %s attack: %s (Dir: %s, Set: %s)"),
+            *UEnum::GetValueAsString(DesiredType),
+            *CurrentAttack.AttackName.ToString(),
+            *UEnum::GetValueAsString(CurrentAttack.AttackDirection),
+            *ActiveAttackSetTag.ToString());
     }
 
     return bSuccess;
@@ -145,10 +144,7 @@ void UMCS_CombatCoreComponent::PerformAttack(EMCS_AttackType DesiredType, EMCS_A
 {
     if (!SelectAttack(DesiredType, DesiredDirection, CurrentSituation))
     {
-        if (bDebug)
-        {
-            UE_LOG(LogTemp, Warning, TEXT("[CombatCore] PerformAttack failed — no valid attack found."));
-        }
+        UE_LOG(LogTemp, Warning, TEXT("[CombatCore] PerformAttack failed — no valid attack found."));
         return;
     }
 
@@ -168,10 +164,7 @@ void UMCS_CombatCoreComponent::PerformAttack(EMCS_AttackType DesiredType, EMCS_A
         AnimInstance->Montage_JumpToSection(CurrentAttack.MontageSection, CurrentAttack.AttackMontage);
     }
 
-    if (bDebug)
-    {
-        UE_LOG(LogTemp, Log, TEXT("[CombatCore] Playing montage: %s"), *CurrentAttack.AttackMontage->GetName());
-    }
+    UE_LOG(LogTemp, Log, TEXT("[CombatCore] Playing montage: %s"), *CurrentAttack.AttackMontage->GetName());
 }
 
 /*
@@ -201,10 +194,7 @@ AActor* UMCS_CombatCoreComponent::GetOwnerActor() const
 // Handler for TargetingSubsystem target updates
 void UMCS_CombatCoreComponent::HandleTargetsUpdated(const TArray<FMCS_TargetInfo>& NewTargets, int32 NewTargetCount)
 {
-    if (bDebug)
-    {
-        UE_LOG(LogTemp, Log, TEXT("[CombatCore] Target list changed: %d targets in range."), NewTargetCount);
-    }
+    UE_LOG(LogTemp, Log, TEXT("[CombatCore] Target list changed: %d targets in range."), NewTargetCount);
 
     // Fire the exposed Blueprint event
     if (OnTargetingUpdated.IsBound())
@@ -310,11 +300,7 @@ void UMCS_CombatCoreComponent::BindHitboxNotifiesForMontage(UAnimMontage* Montag
         }
     }
 
-    if (bDebug)
-    {
-        UE_LOG(LogTemp, Log, TEXT("[CombatCore] Bound to %d hitbox notifies on montage %s"),
-            BoundHitboxNotifies.Num(), *Montage->GetName());
-    }
+    UE_LOG(LogTemp, Log, TEXT("[CombatCore] Bound to %d hitbox notifies on montage %s"), BoundHitboxNotifies.Num(), *Montage->GetName());
 }
 
 void UMCS_CombatCoreComponent::UnbindAllHitboxNotifies()
@@ -355,10 +341,7 @@ void UMCS_CombatCoreComponent::HandleHitboxNotifyBegin(FMCS_AttackHitbox& Hitbox
     // Start hit detection for this hitbox
     CachedHitboxComp->StartHitDetection(CurrentAttack, Hitbox);
 
-    if (bDebug)
-    {
-        UE_LOG(LogTemp, Log, TEXT("[CombatCore] Hitbox BEGIN (Start:%s End:%s R:%.1f)"), *Hitbox.StartSocket.ToString(), *Hitbox.EndSocket.ToString(), Hitbox.Radius);
-    }
+    UE_LOG(LogTemp, Log, TEXT("[CombatCore] Hitbox BEGIN (Start:%s End:%s R:%.1f)"), *Hitbox.StartSocket.ToString(), *Hitbox.EndSocket.ToString(), Hitbox.Radius);
 }
 
 void UMCS_CombatCoreComponent::HandleHitboxNotifyEnd(FMCS_AttackHitbox& Hitbox)
@@ -373,12 +356,7 @@ void UMCS_CombatCoreComponent::HandleHitboxNotifyEnd(FMCS_AttackHitbox& Hitbox)
     if (CachedHitboxComp)
     {
         CachedHitboxComp->StopHitDetection();
-
-        if (bDebug)
-        {
-            UE_LOG(LogTemp, Log, TEXT("[CombatCore] Hitbox END (Label:%s)"),
-                *Hitbox.StartSocket.ToString());
-        }
+        UE_LOG(LogTemp, Log, TEXT("[CombatCore] Hitbox END (Label:%s)"), *Hitbox.StartSocket.ToString());
     }
 }
 
@@ -412,11 +390,10 @@ bool UMCS_CombatCoreComponent::SetActiveAttackSet(const FGameplayTag& NewAttackS
         if (Row)
             FoundSet->AttackChooser->AttackEntries.Add(*Row);
 
-    if (bDebug)
-        UE_LOG(LogTemp, Log, TEXT("[CombatCore] Activated set: %s (%d attacks) Chooser: %s"),
-            *NewAttackSetTag.ToString(),
-            FoundSet->AttackChooser->AttackEntries.Num(),
-            *FoundSet->AttackChooser->GetName());
+    UE_LOG(LogTemp, Log, TEXT("[CombatCore] Activated set: %s (%d attacks) Chooser: %s"),
+        *NewAttackSetTag.ToString(),
+        FoundSet->AttackChooser->AttackEntries.Num(),
+        *FoundSet->AttackChooser->GetName());
 
     return true;
 }
@@ -432,3 +409,73 @@ UDataTable* UMCS_CombatCoreComponent::GetActiveAttackTable() const
     }
     return nullptr;
 }
+
+#if WITH_EDITORONLY_DATA
+/**
+ * Draws the Motion Combat System debug overlay.
+ * Call from your PlayerController::DrawHUD() or custom AHUD::DrawHUD().
+ */
+void UMCS_CombatCoreComponent::DrawDebugOverlay(FCanvas* Canvas, float& Y) const
+{
+    if (!Canvas)
+        return;
+
+    const FMCS_AttackSetData* ActiveSet = AttackSets.Find(ActiveAttackSetTag);
+    if (!ActiveSet || !ActiveSet->AttackChooser)
+        return;
+
+    const TArray<FMCS_DebugAttackScore>& Scores = ActiveSet->AttackChooser->DebugScores;
+    if (Scores.IsEmpty())
+        return;
+
+    const float X = 50.f;
+    const float LineHeight = 14.f;
+
+    //----------------------------------------
+    // Header
+    //----------------------------------------
+    {
+        const FString Header = FString::Printf(
+            TEXT("Motion Combat Debug - Active Set: %s"),
+            *ActiveAttackSetTag.ToString());
+
+        FCanvasTextItem HeaderItem(FVector2D(X, Y),
+            FText::FromString(Header),
+            GEngine->GetMediumFont(),
+            FLinearColor(FColor::Cyan));
+
+        HeaderItem.EnableShadow(FLinearColor::Black);
+        Canvas->DrawItem(HeaderItem);
+        Y += 22.f;
+    }
+
+    //----------------------------------------
+    // Attack Entries
+    //----------------------------------------
+    for (const FMCS_DebugAttackScore& Info : Scores)
+    {
+        const FLinearColor Color =
+            Info.bWasChosen ? FLinearColor::Yellow : FLinearColor::White;
+
+        const FString Line = FString::Printf(
+            TEXT("%s | Total: %.1f [B%.1f T%.1f D%.1f Dir%.1f Sit%.1f]"),
+            *Info.AttackName.ToString(),
+            Info.TotalScore,
+            Info.BaseScore,
+            Info.TagScore,
+            Info.DistanceScore,
+            Info.DirectionScore,
+            Info.SituationScore);
+
+        FCanvasTextItem LineItem(FVector2D(X, Y),
+            FText::FromString(Line),
+            GEngine->GetTinyFont(),
+            Color);
+
+        LineItem.EnableShadow(FLinearColor::Black);
+        Canvas->DrawItem(LineItem);
+
+        Y += LineHeight;
+    }
+}
+#endif

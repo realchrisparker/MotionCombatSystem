@@ -31,4 +31,3 @@ void AMCS_CharacterBase::SetupPlayerInputComponent(UInputComponent* PlayerInputC
 	Super::SetupPlayerInputComponent(PlayerInputComponent);
 
 }
-
