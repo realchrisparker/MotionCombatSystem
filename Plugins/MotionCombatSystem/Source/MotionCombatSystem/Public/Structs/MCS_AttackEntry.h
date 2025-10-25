@@ -93,12 +93,20 @@ public:
 	 * --------------------------- */
 
 	// The montage to play for this attack (TObjectPtr preferred over raw pointer)
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack", meta = (DisplayName = "Montage"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack|Montage", meta = (DisplayName = "Montage"))
 	TObjectPtr<UAnimMontage> AttackMontage = nullptr;
 
 	// Optionally play from a specific montage section
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack", meta = (DisplayName = "Montage Section"))
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack|Montage", meta = (DisplayName = "Montage Section"))
 	FName MontageSection = NAME_None;
+
+	/** Time to blend into this montage (seconds). Default: 0.10f */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack|Montage", meta = (ClampMin = "0.0", DisplayName = "Blend In Time"))
+	float BlendInTime = 0.10f;
+
+	/** Time to blend out of this montage (seconds). Default: 0.20f */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack|Montage", meta = (ClampMin = "0.0", DisplayName = "Blend Out Time"))
+	float BlendOutTime = 0.20f;
 
 	/* ---------------------------
 	 * Gameplay values
@@ -130,6 +138,14 @@ public:
 	 // Primary gameplay tag used to identify or trigger this attack in GAS.
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack", meta = (DisplayName = "Attack Gameplay Tag"))
 	FGameplayTag AttackTag;
+
+	/* ---------------------------
+	 * Combo System
+	 * --------------------------- */
+
+	/** List of attack names that can follow this attack in a combo sequence. */
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Attack|Combo", meta = (DisplayName = "Allowed Next Attacks"))
+	TArray<FName> AllowedNextAttacks;
 
 	/*
 	 * Functions

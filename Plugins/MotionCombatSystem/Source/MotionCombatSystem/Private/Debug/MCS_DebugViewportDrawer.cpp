@@ -18,8 +18,7 @@ FDelegateHandle FMCS_DebugViewportDrawer::DrawHandle;
 
 void FMCS_DebugViewportDrawer::Initialize()
 {
-    if (bIsRegistered || !GEngine || !GEngine->GameViewport)
-        return;
+    if (bIsRegistered || !GEngine || !GEngine->GameViewport) return;
 
     // Register a parameter-less lambda to the OnEndDraw delegate
     DrawHandle = GEngine->GameViewport->OnEndDraw().AddLambda([ ] ()
@@ -33,8 +32,7 @@ void FMCS_DebugViewportDrawer::Initialize()
 
 void FMCS_DebugViewportDrawer::Shutdown()
 {
-    if (!bIsRegistered || !GEngine || !GEngine->GameViewport)
-        return;
+    if (!bIsRegistered || !GEngine || !GEngine->GameViewport) return;
 
     GEngine->GameViewport->OnEndDraw().Remove(DrawHandle);
     bIsRegistered = false;
@@ -44,24 +42,20 @@ void FMCS_DebugViewportDrawer::Shutdown()
 void FMCS_DebugViewportDrawer::DrawOverlay()
 {
     // Skip if disabled
-    if (!CVarMCS_DebugOverlay.GetValueOnGameThread())
-        return;
+    if (!CVarMCS_DebugOverlay.GetValueOnGameThread()) return;
 
-    if (!GEngine || !GEngine->GameViewport || !GWorld)
-        return;
+    if (!GEngine || !GEngine->GameViewport || !GWorld) return;
 
     // Grab the debug canvas from the viewport
     FViewport* Viewport = GEngine->GameViewport->Viewport;
     FCanvas* Canvas = Viewport ? Viewport->GetDebugCanvas() : nullptr;
-    if (!Canvas)
-        return;
+    if (!Canvas) return;
 
     for (FConstPlayerControllerIterator It = GWorld->GetPlayerControllerIterator(); It; ++It)
     {
         if (APlayerController* PC = It->Get())
         {
-            if (!PC->IsLocalController())
-                continue;
+            if (!PC->IsLocalController()) continue;
 
             if (APawn* Pawn = PC->GetPawn())
             {

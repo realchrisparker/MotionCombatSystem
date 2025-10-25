@@ -30,6 +30,7 @@
 #include <SubSystems/MCS_TargetingSubsystem.h>
 #include <Choosers/MCS_AttackChooser.h>
 #include <AnimNotifyStates/AnimNotifyState_MCSHitboxWindow.h>
+#include <AnimNotifyStates/AnimNotifyState_MCSComboWindow.h>
 #include <Components/MCS_CombatHitboxComponent.h>
 #include "MCS_CombatCoreComponent.generated.h"
 
@@ -40,6 +41,12 @@
 
 // Delegate broadcast when the target list is updated
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FOnTargetingUpdatedSignature, const TArray<FMCS_TargetInfo>&, NewTargetList, int32, NumTargets);
+
+// Delegates for combo window begin events
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnComboWindowBeginSignature);
+
+// Delegate for combo window end events
+DECLARE_DYNAMIC_MULTICAST_DELEGATE(FOnComboWindowEndSignature);
 
 
 /**
@@ -62,17 +69,21 @@ public:
     UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Core", meta = (DisplayName = "Attack Sets"))
     TMap<FGameplayTag, FMCS_AttackSetData> AttackSets;
 
-    // /**
-    //  * Enables debug logging and visual overlay output for the Motion Combat System.
-    //  * When true, the system will display attack selection scores and debug information
-    //  * in the viewport (if available) and log detailed info to the console.
-    //  */
-    // UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Core|Debug", meta = (DisplayName = "Enable Debug Visualization"))
-    // bool bDebug = false;
+    /** Current character situation */
+    UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "MCS|Core", meta = (DisplayName = "Player Situation"))
+    FMCS_AttackSituation PlayerSituation;
 
     /** Blueprint Event triggered whenever the TargetingSubsystem's target list is updated */
-    UPROPERTY(BlueprintAssignable, Category = "MCS|Events", meta = (DisplayName = "On Targeting Updated"))
+    UPROPERTY(BlueprintAssignable, Category = "MCS|Core|Events", meta = (DisplayName = "On Targeting Updated"))
     FOnTargetingUpdatedSignature OnTargetingUpdated;
+
+    /** Blueprint Event triggered when the combo window begins */
+    UPROPERTY(BlueprintAssignable, Category = "MCS|Core|Events", meta = (DisplayName = "On Combo Window Begin"))
+    FOnComboWindowBeginSignature OnComboWindowBegin;
+
+    /** Blueprint Event triggered when the combo window ends */
+    UPROPERTY(BlueprintAssignable, Category = "MCS|Core|Events", meta = (DisplayName = "On Combo Window End"))
+    FOnComboWindowEndSignature OnComboWindowEnd;
 
     /*
      * Functions
@@ -128,6 +139,12 @@ public:
     UFUNCTION(BlueprintPure, Category = "MCS|Core", meta = (DisplayName = "Get Current Attack"))
     FMCS_AttackEntry GetCurrentAttack() const { return CurrentAttack; }
 
+    UFUNCTION(BlueprintCallable, Category = "MCS|Core", meta = (DisplayName = "Update Player Situation"))
+    void UpdatePlayerSituation(float DeltaTime);
+
+    UFUNCTION(BlueprintCallable, Category = "MCS|Core|Combo")
+    bool TryContinueCombo(EMCS_AttackType DesiredType, EMCS_AttackDirection DesiredDirection, const FMCS_AttackSituation& CurrentSituation);
+
 #if WITH_EDITORONLY_DATA
     /**
      * Draws the Motion Combat System debug overlay.
@@ -138,6 +155,9 @@ public:
 
 protected:
     virtual void BeginPlay() override;
+
+    /** Update PlayerSituation each frame */
+    virtual void TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction) override;
 
 private:
     
@@ -164,6 +184,32 @@ private:
     UPROPERTY()
     FGameplayTag ActiveAttackSetTag;
 
+    /** Cached list of hitbox window data parsed from the current montage */
+    TArray<FMCS_AttackHitbox> CachedHitboxWindows;
+
+    /** Cached pointer to owner’s hitbox component */
+    TObjectPtr<UMCS_CombatHitboxComponent> CachedHitboxComp;
+
+    // Keep track of which notify CDOs we’ve bound so we can unbind safely
+    UPROPERTY()
+    TArray<TObjectPtr<UAnimNotifyState_MCSHitboxWindow>> BoundHitboxNotifies;
+
+    // Keep track of which combo notify CDOs we’ve bound so we can unbind safely
+    UPROPERTY()
+    TArray<TObjectPtr<UAnimNotifyState_MCSComboWindow>> BoundComboNotifies;
+
+    /** Whether the player is inside an active combo window (set by AnimNotify) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MCS|Core|Combo", meta = (AllowPrivateAccess = "true"))
+    bool bIsComboWindowOpen = false;
+
+    /** Tracks whether the player can chain into another attack */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MCS|Core|Combo", meta = (AllowPrivateAccess = "true"))
+    bool bCanContinueCombo = false;
+
+    /** Names of attacks that can follow the current one (populated from AllowedNextAttacks) */
+    UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MCS|Core|Combo", meta = (AllowPrivateAccess = "true"))
+    TArray<FName> AllowedComboNames;
+
     /*
      * Functions
      */
@@ -172,20 +218,19 @@ private:
     UFUNCTION()
     void HandleTargetsUpdated(const TArray<FMCS_TargetInfo>& NewTargets, int32 NewTargetCount);
 
-    /** Cached list of hitbox window data parsed from the current montage */
-    TArray<FMCS_AttackHitbox> CachedHitboxWindows;
-
-    /** Cached pointer to owner’s hitbox component */
-    TObjectPtr<UMCS_CombatHitboxComponent> CachedHitboxComp;
-
-    // Keep track of which notify CDOs we’ve bound so we can unbind safely
-    UPROPERTY() TArray<TObjectPtr<UAnimNotifyState_MCSHitboxWindow>> BoundHitboxNotifies;
-
     // Subscribe/unsubscribe to all hitbox notifies used by a montage
-    void BindHitboxNotifiesForMontage(UAnimMontage* Montage);
-    void UnbindAllHitboxNotifies();
+    void BindNotifiesForMontage(UAnimMontage* Montage);
+    void UnbindAllNotifies();
 
     // Callback targets for notify broadcasts
-    UFUNCTION() void HandleHitboxNotifyBegin(FMCS_AttackHitbox& Hitbox);
-    UFUNCTION() void HandleHitboxNotifyEnd(FMCS_AttackHitbox& Hitbox);
+    UFUNCTION()
+    void HandleHitboxNotifyBegin(FMCS_AttackHitbox& Hitbox);
+    UFUNCTION()
+    void HandleHitboxNotifyEnd(FMCS_AttackHitbox& Hitbox);
+
+    // Callback targets for combo notify broadcasts
+    UFUNCTION()
+    void HandleComboNotifyBegin();
+    UFUNCTION()
+    void HandleComboNotifyEnd();
 };
