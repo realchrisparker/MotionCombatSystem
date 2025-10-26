@@ -80,6 +80,81 @@ void UMCS_CombatCoreComponent::TickComponent(float DeltaTime, ELevelTick TickTyp
 }
 
 /*
+ * Plays the selected attack's montage if valid
+ * @param DesiredType - type of attack to perform
+ * @param DesiredDirection - direction of the attack in world space
+*/
+void UMCS_CombatCoreComponent::PerformAttack(EMCS_AttackType DesiredType, EMCS_AttackDirection DesiredDirection, const FMCS_AttackSituation& CurrentSituation)
+{
+    if (!CurrentAttack.HasValidMontage())
+    {
+        if (!SelectAttack(DesiredType, DesiredDirection, CurrentSituation))
+        {
+            return;
+        }
+    }
+
+    ACharacter* CharacterOwner = Cast<ACharacter>(GetOwner());
+    if (!CharacterOwner || !CurrentAttack.HasValidMontage()) return;
+
+    // Cache hitbox component reference
+    CachedHitboxComp = CharacterOwner->FindComponentByClass<UMCS_CombatHitboxComponent>();
+
+    // Bind notifies for the montage
+    BindNotifiesForMontage(CurrentAttack.AttackMontage);
+
+    // Retrieve anim instance
+    UAnimInstance* AnimInstance = CharacterOwner->GetMesh()->GetAnimInstance();
+    if (!AnimInstance)
+    {
+        return;
+    }
+
+    //----------------------------------------
+    // Smoothly blend between montages
+    //----------------------------------------
+
+    // Use designer-defined or default blend times
+    float BlendInTime = FMath::Max(CurrentAttack.BlendInTime, 0.0f);
+    float BlendOutTime = FMath::Max(CurrentAttack.BlendOutTime, 0.0f);
+
+    // Use faster blend when chaining combos
+    const bool bFromCombo = bIsComboWindowOpen;
+    if (bFromCombo)
+    {
+        BlendInTime = FMath::Min(BlendInTime, 0.05f);
+        BlendOutTime = FMath::Min(BlendOutTime, 0.05f);
+    }
+
+    // Smoothly fade out any active montage
+    if (UAnimMontage* CurrentMontage = AnimInstance->GetCurrentActiveMontage())
+    {
+        if (CurrentMontage != CurrentAttack.AttackMontage)
+        {
+            AnimInstance->Montage_Stop(BlendOutTime, CurrentMontage);
+        }
+    }
+
+    // Apply blend parameters to the new montage
+    if (CurrentAttack.AttackMontage)
+    {
+        CurrentAttack.AttackMontage->BlendIn.SetBlendTime(BlendInTime);
+        CurrentAttack.AttackMontage->BlendOut.SetBlendTime(BlendOutTime);
+    }
+
+    // Play the new montage with blending
+    const float PlayRate = 1.0f;
+    const float StartTime = 0.0f;
+    AnimInstance->Montage_Play(CurrentAttack.AttackMontage, PlayRate, EMontagePlayReturnType::MontageLength, StartTime, true);
+
+    // Jump to specified section if provided
+    if (CurrentAttack.MontageSection != NAME_None)
+    {
+        AnimInstance->Montage_JumpToSection(CurrentAttack.MontageSection, CurrentAttack.AttackMontage);
+    }
+}
+
+/*
  * Chooses an appropriate attack using AttackChooser and available targets
  * @param DesiredType - type of attack to select
  * @param DesiredDirection - direction of the attack in world space
@@ -89,7 +164,7 @@ bool UMCS_CombatCoreComponent::SelectAttack(EMCS_AttackType DesiredType, EMCS_At
     const FMCS_AttackSetData* ActiveSet = AttackSets.Find(ActiveAttackSetTag);
     if (!ActiveSet || !ActiveSet->AttackChooser)
     {
-        UE_LOG(LogTemp, Error, TEXT("[CombatCore] No valid attack set or chooser for active tag: %s"), *ActiveAttackSetTag.ToString());
+        // UE_LOG(LogTemp, Error, TEXT("[CombatCore] No valid attack set or chooser for active tag: %s"), *ActiveAttackSetTag.ToString());
         return false;
     }
 
@@ -109,7 +184,6 @@ bool UMCS_CombatCoreComponent::SelectAttack(EMCS_AttackType DesiredType, EMCS_At
 
     if (FilteredEntries.IsEmpty())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[CombatCore] No attacks found of type %s for set %s."), *UEnum::GetValueAsString(DesiredType), *ActiveAttackSetTag.ToString());
         return false;
     }
 
@@ -136,93 +210,9 @@ bool UMCS_CombatCoreComponent::SelectAttack(EMCS_AttackType DesiredType, EMCS_At
     if (bSuccess)
     {
         CurrentAttack = ChosenAttack;
-
-        UE_LOG(LogTemp, Log, TEXT("[CombatCore] Selected %s attack: %s (Dir: %s, Set: %s)"),
-            *UEnum::GetValueAsString(DesiredType),
-            *CurrentAttack.AttackName.ToString(),
-            *UEnum::GetValueAsString(CurrentAttack.AttackDirection),
-            *ActiveAttackSetTag.ToString());
     }
 
     return bSuccess;
-}
-
-/*
- * Plays the selected attack's montage if valid
- * @param DesiredType - type of attack to perform
- * @param DesiredDirection - direction of the attack in world space
-*/
-void UMCS_CombatCoreComponent::PerformAttack(EMCS_AttackType DesiredType, EMCS_AttackDirection DesiredDirection, const FMCS_AttackSituation& CurrentSituation)
-{
-    if (!SelectAttack(DesiredType, DesiredDirection, CurrentSituation))
-    {
-        UE_LOG(LogTemp, Warning, TEXT("[CombatCore] PerformAttack failed — no valid attack found."));
-        return;
-    }
-
-    ACharacter* CharacterOwner = Cast<ACharacter>(GetOwner());
-    if (!CharacterOwner || !CurrentAttack.HasValidMontage()) return;
-
-    // Cache hitbox component reference
-    CachedHitboxComp = CharacterOwner->FindComponentByClass<UMCS_CombatHitboxComponent>();
-
-    // Bind notifies for the montage
-    BindNotifiesForMontage(CurrentAttack.AttackMontage);
-
-    // Retrieve anim instance
-    UAnimInstance* AnimInstance = CharacterOwner->GetMesh()->GetAnimInstance();
-    if (!AnimInstance)
-    {
-        UE_LOG(LogTemp, Warning, TEXT("[CombatCore] Missing AnimInstance on mesh."));
-        return;
-    }
-
-    //----------------------------------------
-    // Smoothly blend between montages
-    //----------------------------------------
-
-     // Use designer-defined or default blend times
-    float BlendInTime = FMath::Max(CurrentAttack.BlendInTime, 0.0f);
-    float BlendOutTime = FMath::Max(CurrentAttack.BlendOutTime, 0.0f);
-
-    // Use faster blend when chaining combos
-    const bool bFromCombo = bIsComboWindowOpen;
-    if (bFromCombo)
-    {
-        BlendInTime = FMath::Min(BlendInTime, 0.05f);
-        BlendOutTime = FMath::Min(BlendOutTime, 0.05f);
-    }
-
-    // Smoothly fade out any active montage
-    if (UAnimMontage* CurrentMontage = AnimInstance->GetCurrentActiveMontage())
-    {
-        if (CurrentMontage != CurrentAttack.AttackMontage)
-        {
-            AnimInstance->Montage_Stop(BlendOutTime, CurrentMontage);
-            UE_LOG(LogTemp, Log, TEXT("[CombatCore] Blending out montage: %s (%.2fs)"), *CurrentMontage->GetName(), BlendOutTime);
-        }
-    }
-
-    // Apply blend parameters to the new montage
-    if (CurrentAttack.AttackMontage)
-    {
-        CurrentAttack.AttackMontage->BlendIn.SetBlendTime(BlendInTime);
-        CurrentAttack.AttackMontage->BlendOut.SetBlendTime(BlendOutTime);
-    }
-
-    // Play the new montage with blending
-    const float PlayRate = 1.0f;
-    const float StartTime = 0.0f;
-    AnimInstance->Montage_Play(CurrentAttack.AttackMontage, PlayRate, EMontagePlayReturnType::MontageLength, StartTime, true);
-
-    // Jump to specified section if provided
-    if (CurrentAttack.MontageSection != NAME_None)
-    {
-        AnimInstance->Montage_JumpToSection(CurrentAttack.MontageSection, CurrentAttack.AttackMontage);
-    }
-
-    UE_LOG(LogTemp, Log, TEXT("[CombatCore] Playing montage (blended): %s [BlendIn=%.2fs, BlendOut=%.2fs]"),
-        *CurrentAttack.AttackMontage->GetName(), BlendInTime, BlendOutTime);
 }
 
 /*
@@ -234,13 +224,13 @@ bool UMCS_CombatCoreComponent::TryContinueCombo(EMCS_AttackType DesiredType, EMC
 {
     if (!bIsComboWindowOpen)
     {
-        UE_LOG(LogTemp, Log, TEXT("[CombatCore] Combo attempt ignored — window not active."));
+        // UE_LOG(LogTemp, Log, TEXT("[CombatCore] Combo attempt ignored — window not active."));
         return false;
     }
 
     if (AllowedComboNames.IsEmpty())
     {
-        UE_LOG(LogTemp, Log, TEXT("[CombatCore] Combo attempt ignored — no valid follow-up attacks."));
+        // UE_LOG(LogTemp, Log, TEXT("[CombatCore] Combo attempt ignored — no valid follow-up attacks."));
         return false;
     }
 
@@ -263,7 +253,7 @@ bool UMCS_CombatCoreComponent::TryContinueCombo(EMCS_AttackType DesiredType, EMC
 
     if (Filtered.IsEmpty())
     {
-        UE_LOG(LogTemp, Log, TEXT("[CombatCore] No matching combo follow-ups found."));
+        // UE_LOG(LogTemp, Log, TEXT("[CombatCore] No matching combo follow-ups found."));
         return false;
     }
 
@@ -278,7 +268,7 @@ bool UMCS_CombatCoreComponent::TryContinueCombo(EMCS_AttackType DesiredType, EMC
 
     if (!bChosen)
     {
-        UE_LOG(LogTemp, Warning, TEXT("[CombatCore] Combo chooser failed to pick next attack."));
+        // UE_LOG(LogTemp, Warning, TEXT("[CombatCore] Combo chooser failed to pick next attack."));
         return false;
     }
 
@@ -286,7 +276,7 @@ bool UMCS_CombatCoreComponent::TryContinueCombo(EMCS_AttackType DesiredType, EMC
     CurrentAttack = NextAttack;
     PerformAttack(DesiredType, DesiredDirection, CurrentSituation);
 
-    UE_LOG(LogTemp, Log, TEXT("[CombatCore] Combo chained into attack: %s"), *NextAttack.AttackName.ToString());
+    // UE_LOG(LogTemp, Log, TEXT("[CombatCore] Combo chained into attack: %s"), *NextAttack.AttackName.ToString());
 
     // Reset combo window state (will be reopened by next montage’s combo notify)
     bCanContinueCombo = false;
@@ -323,7 +313,7 @@ AActor* UMCS_CombatCoreComponent::GetOwnerActor() const
 // Handler for TargetingSubsystem target updates
 void UMCS_CombatCoreComponent::HandleTargetsUpdated(const TArray<FMCS_TargetInfo>& NewTargets, int32 NewTargetCount)
 {
-    UE_LOG(LogTemp, Log, TEXT("[CombatCore] Target list changed: %d targets in range."), NewTargetCount);
+    // UE_LOG(LogTemp, Log, TEXT("[CombatCore] Target list changed: %d targets in range."), NewTargetCount);
 
     // Fire the exposed Blueprint event
     if (OnTargetingUpdated.IsBound())
@@ -440,7 +430,7 @@ void UMCS_CombatCoreComponent::BindNotifiesForMontage(UAnimMontage* Montage)
         }
     }
 
-    UE_LOG(LogTemp, Log, TEXT("[CombatCore] Bound to %d hitbox notifies on montage %s"), BoundHitboxNotifies.Num(), *Montage->GetName());
+    // UE_LOG(LogTemp, Log, TEXT("[CombatCore] Bound to %d hitbox notifies on montage %s"), BoundHitboxNotifies.Num(), *Montage->GetName());
 }
 
 void UMCS_CombatCoreComponent::UnbindAllNotifies()
@@ -495,7 +485,7 @@ void UMCS_CombatCoreComponent::HandleHitboxNotifyBegin(FMCS_AttackHitbox& Hitbox
     // Start hit detection for this hitbox
     CachedHitboxComp->StartHitDetection(CurrentAttack, Hitbox);
 
-    UE_LOG(LogTemp, Log, TEXT("[CombatCore] Hitbox BEGIN (Start:%s End:%s R:%.1f)"), *Hitbox.StartSocket.ToString(), *Hitbox.EndSocket.ToString(), Hitbox.Radius);
+    // UE_LOG(LogTemp, Log, TEXT("[CombatCore] Hitbox BEGIN (Start:%s End:%s R:%.1f)"), *Hitbox.StartSocket.ToString(), *Hitbox.EndSocket.ToString(), Hitbox.Radius);
 }
 
 void UMCS_CombatCoreComponent::HandleHitboxNotifyEnd(FMCS_AttackHitbox& Hitbox)
@@ -510,7 +500,7 @@ void UMCS_CombatCoreComponent::HandleHitboxNotifyEnd(FMCS_AttackHitbox& Hitbox)
     if (CachedHitboxComp)
     {
         CachedHitboxComp->StopHitDetection();
-        UE_LOG(LogTemp, Log, TEXT("[CombatCore] Hitbox END (Label:%s)"), *Hitbox.StartSocket.ToString());
+        // UE_LOG(LogTemp, Log, TEXT("[CombatCore] Hitbox END (Label:%s)"), *Hitbox.StartSocket.ToString());
     }
 }
 
@@ -528,7 +518,7 @@ void UMCS_CombatCoreComponent::HandleComboNotifyBegin()
     AllowedComboNames = CurrentAttack.AllowedNextAttacks;
     bCanContinueCombo = AllowedComboNames.Num() > 0;
 
-    UE_LOG(LogTemp, Log, TEXT("[CombatCore] Combo Window BEGIN — %d allowed next attacks."), AllowedComboNames.Num());
+    // UE_LOG(LogTemp, Log, TEXT("[CombatCore] Combo Window BEGIN — %d allowed next attacks."), AllowedComboNames.Num());
 
     // Fire the combo begin event
     OnComboWindowBegin.Broadcast();
@@ -544,7 +534,7 @@ void UMCS_CombatCoreComponent::HandleComboNotifyEnd()
     // Close combo window
     bIsComboWindowOpen = false;
 
-    UE_LOG(LogTemp, Log, TEXT("[CombatCore] Combo Window END."));
+    // UE_LOG(LogTemp, Log, TEXT("[CombatCore] Combo Window END."));
 
     // Fire the combo end event
     OnComboWindowEnd.Broadcast();
@@ -564,13 +554,13 @@ bool UMCS_CombatCoreComponent::SetActiveAttackSet(const FGameplayTag& NewAttackS
     const FMCS_AttackSetData* FoundSet = AttackSets.Find(NewAttackSetTag);
     if (!FoundSet)
     {
-        UE_LOG(LogTemp, Warning, TEXT("[CombatCore] Unknown attack set tag: %s"), *NewAttackSetTag.ToString());
+        // UE_LOG(LogTemp, Warning, TEXT("[CombatCore] Unknown attack set tag: %s"), *NewAttackSetTag.ToString());
         return false;
     }
 
     if (!FoundSet->AttackDataTable || !FoundSet->AttackChooser)
     {
-        UE_LOG(LogTemp, Error, TEXT("[CombatCore] Attack set '%s' missing required DataTable or Chooser!"), *NewAttackSetTag.ToString());
+        // UE_LOG(LogTemp, Error, TEXT("[CombatCore] Attack set '%s' missing required DataTable or Chooser!"), *NewAttackSetTag.ToString());
         return false;
     }
 
@@ -586,10 +576,10 @@ bool UMCS_CombatCoreComponent::SetActiveAttackSet(const FGameplayTag& NewAttackS
         if (Row)
             FoundSet->AttackChooser->AttackEntries.Add(*Row);
 
-    UE_LOG(LogTemp, Log, TEXT("[CombatCore] Activated set: %s (%d attacks) Chooser: %s"),
-        *NewAttackSetTag.ToString(),
-        FoundSet->AttackChooser->AttackEntries.Num(),
-        *FoundSet->AttackChooser->GetName());
+    // UE_LOG(LogTemp, Log, TEXT("[CombatCore] Activated set: %s (%d attacks) Chooser: %s"),
+        // *NewAttackSetTag.ToString(),
+        // FoundSet->AttackChooser->AttackEntries.Num(),
+        // *FoundSet->AttackChooser->GetName());
 
     return true;
 }

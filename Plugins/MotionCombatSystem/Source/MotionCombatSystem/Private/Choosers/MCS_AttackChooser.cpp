@@ -30,7 +30,7 @@ UMCS_AttackChooser::UMCS_AttackChooser()
  * Attack Selection & Scoring Implementations
  * ========================================================== */
 
- /*
+/*
  * Attack Selection
  */
 bool UMCS_AttackChooser::ChooseAttack(
@@ -42,7 +42,7 @@ bool UMCS_AttackChooser::ChooseAttack(
 {
     if (AttackEntries.IsEmpty())
     {
-        UE_LOG(LogTemp, Warning, TEXT("[MCS_AttackChooser] No attacks to choose from."));
+        // UE_LOG(LogTemp, Warning, TEXT("[MCS_AttackChooser] No attacks to choose from."));
         return false;
     }
 
@@ -74,7 +74,7 @@ bool UMCS_AttackChooser::ChooseAttack(
         DebugEntry.SituationScore = ComputeSituationScore(Entry, CurrentSituation);
         DebugEntry.TotalScore = DebugEntry.BaseScore + DebugEntry.TagScore + DebugEntry.DistanceScore + DebugEntry.DirectionScore + DebugEntry.SituationScore;
         DebugEntry.Notes = FString::Printf(TEXT("Tag:%+.1f Dist:%+.1f Dir:%+.1f Sit:%+.1f"),
-            DebugEntry.TagScore, DebugEntry.DistanceScore, DebugEntry.DirectionScore, DebugEntry.SituationScore);
+        DebugEntry.TagScore, DebugEntry.DistanceScore, DebugEntry.DirectionScore, DebugEntry.SituationScore);
         DebugScores.Add(DebugEntry);
 #endif
 
@@ -123,9 +123,48 @@ float UMCS_AttackChooser::ScoreAttack_Implementation(
     const float TagScore = ComputeTagScore(Entry);
     const float DistanceScore = ComputeDistanceScore(Entry, Instigator, Targets);
     const float DirectionScore = ComputeDirectionalScore(Entry, DesiredDirection);
-    const float SituationScoreValue = ComputeSituationScore(Entry, CurrentSituation);
+    const float SituationScore = ComputeSituationScore(Entry, CurrentSituation);
 
-    return AggregateScore(BaseScore, TagScore, DistanceScore, DirectionScore, SituationScoreValue);
+// #if WITH_EDITORONLY_DATA || UE_BUILD_DEVELOPMENT
+//     if (DistanceScore <= -TNumericLimits<float>::Max() * 0.5f)
+//         UE_LOG(LogTemp, Verbose, TEXT("[Chooser] %s failed distance window"), *Entry.AttackName.ToString());
+//     if (SituationScore <= -TNumericLimits<float>::Max() * 0.5f)
+//         UE_LOG(LogTemp, Verbose, TEXT("[Chooser] %s failed required condition"), *Entry.AttackName.ToString());
+// #endif
+
+    // -----------------------------------------------------------------
+    //  Clean logging helpers: clamp or label disqualified values
+    // -----------------------------------------------------------------
+    auto Sanitize = [ ] (float Value) -> FString
+        {
+            if (!FMath::IsFinite(Value))
+                return TEXT("[NaN]");
+            if (FMath::IsNearlyEqual(Value, -TNumericLimits<float>::Max()))
+                return TEXT("[INVALID]");
+            return FString::Printf(TEXT("%.2f"), Value);
+        };
+
+    UE_LOG(LogTemp, Warning,
+        TEXT("[MCS_AttackChooser] Scoring Attack '%s': Base:%s Tag:%s Distance:%s Direction:%s Situation:%s"),
+        *Entry.AttackName.ToString(),
+        *Sanitize(BaseScore),
+        *Sanitize(TagScore),
+        *Sanitize(DistanceScore),
+        *Sanitize(DirectionScore),
+        *Sanitize(SituationScore));
+
+    // Disqualify attack if any component returned -FLT_MAX
+    if (DistanceScore <= -TNumericLimits<float>::Max() * 0.5f ||
+        SituationScore <= -TNumericLimits<float>::Max() * 0.5f)
+    {
+        UE_LOG(LogTemp, Warning, TEXT("[Chooser] Attack '%s' disqualified (invalid Distance or Situation)."),
+            *Entry.AttackName.ToString());
+        return -TNumericLimits<float>::Max();
+    }
+
+    // Compute the aggregate score and return.
+    const float AggregateScore = BaseScore + TagScore + DistanceScore + DirectionScore + SituationScore;
+    return AggregateScore;
 }
 
 
@@ -133,10 +172,10 @@ float UMCS_AttackChooser::ScoreAttack_Implementation(
  * BlueprintPure Helper Implementations
  * ========================================================== */
 
- /**
-  * Computes a score modifier based on tag filtering and preferences.
-  * @param Entry The attack entry being evaluated.
-  */
+/**
+ * Computes a score modifier based on tag filtering and preferences.
+ * @param Entry The attack entry being evaluated.
+ */
 float UMCS_AttackChooser::ComputeTagScore(const FMCS_AttackEntry& Entry) const
 {
     if (!RequiredAttackTag.IsValid())
@@ -291,8 +330,14 @@ float UMCS_AttackChooser::ComputeSituationScore(const FMCS_AttackEntry& Entry, c
             case EMCS_ComparisonMethod::LessOrEqual:    bPass = CurrentValue <= Condition.Threshold; break;
         }
 
+        // New logic: hard disqualify if required
+        if (Condition.bMustPass && !bPass)
+            return -TNumericLimits<float>::Max();
+
         if (bPass)
-            Score += Condition.Weight;
+            Score += Condition.Weight; // reward
+        else
+            Score -= Condition.Weight; // penalty
     }
 
     return Score;
